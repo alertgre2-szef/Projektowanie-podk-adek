@@ -4,7 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Edytor podkładki</title>
-  <link rel="stylesheet" href="./style.css" />
+
+  <!-- Zmieniaj v=... gdy przeglądarka trzyma stare style -->
+  <link rel="stylesheet" href="./style.css?v=2026-02-06-02" />
 </head>
 <body>
   <div class="app">
@@ -70,6 +72,7 @@
     </div>
   </div>
 
-  <script src="./editor.js" defer></script>
+  <!-- WAŻNE: moduł, żeby nie wywalało się na 'export' -->
+  <script type="module" src="./editor.js?v=2026-02-06-02"></script>
 </body>
 </html>
