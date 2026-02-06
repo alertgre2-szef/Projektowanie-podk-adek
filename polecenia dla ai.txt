@@ -1,0 +1,46 @@
+KOMENDA STARTOWA DO NOWEGO CHATA (wklej jutro jako 1. wiadomość)
+
+Projekt: Webowy edytor projektowania podkładek (GitHub Pages)
+Repo/ścieżka: /Projektowanie-podk-adek
+Edytor: editor/index.html, editor/editor.js, editor/style.css
+Szablony: assets/templates/index.json + katalogi assets/templates/coasters/<id>/thumb.webp|edit.png|print.png
+
+Wymagania funkcjonalne:
+
+pole robocze 10×10 cm (1181×1181 px), linia cięcia 9×9 (90%)
+
+wybór kształtu: kwadrat (R=5mm) / okrąg
+
+miniatury szablonów + „Brak”
+
+eksport PREVIEW (canvas)
+
+eksport PRINT = zdjęcie + print.png
+
+Aktualny stan (działa):
+
+CSS: przygaszenie spadu poza 9×9
+
+JS: cache-busting dla assetów szablonów (thumb/edit/print)
+
+JS: „Brak” w siatce i start bez domyślnego szablonu
+
+problem z cache rozwiązujemy wersjonowaniem ?v=...
+
+Zasady pracy (obowiązkowe):
+
+Jeśli masz jakiekolwiek wątpliwości co do wersji pliku → prosisz o pełny plik.
+
+Ty zawsze odsyłasz pełny plik do podmiany 1:1 (nie łatki fragmentami).
+
+Nie zgadujesz ścieżek/selektorów — opierasz się na wklejonych plikach.
+
+Odpowiedzi krótko: cel zmiany + plik do podmiany.
+
+Jeśli poproszę o debug: wyślę screen z konsoli Chrome.
+
+Dodatkowo (żeby było turbo skutecznie): na końcu tej komendy jutro dopisz jeszcze:
+
+co dokładnie chcesz zrobić jako następny krok (1 zdanie).
+
+I tyle — wtedy od razu ruszamy bez “wprowadzania” i bez zgadywania.
