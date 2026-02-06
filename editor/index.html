@@ -2,166 +2,74 @@
 <html lang="pl">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Edytor podkładki</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
+  <div class="app">
+    <div class="header">
+      <div class="title">
+        <div class="h1">Edytor podkładki</div>
+        <div class="sub">Projekt 10×10 cm (spad). Linia przerywana: cięcie 9×9 cm.</div>
+      </div>
 
-<!-- =========================================================
-     TEMPORARY TEMPLATE GALLERY SYSTEM
-     ---------------------------------------------------------
-     Cel:
-     - Testowe ładowanie miniatur szablonów
-     - Kliknięcie → ładuje ramkę projektową (edit.png)
-
-     To rozwiązanie jest tymczasowe — docelowo:
-     → będzie podłączone pod backend / bazę danych
-     → miniatury będą generowane dynamicznie
-
-     Autor: Future You + ChatGPT 😄
-========================================================= -->
-
-<script>
-
-//
-// ===== ŁADOWANIE LISTY SZABLONÓW =====
-// Pobiera plik index.json z katalogu templates
-// i tworzy galerię miniatur
-//
-async function loadTemplates() {
-
-  // pobranie danych o szablonach
-  const res = await fetch("../assets/templates/index.json");
-  const data = await res.json();
-
-  // kontener galerii miniatur
-  const container = document.createElement("div");
-  container.id = "templateGallery";
-
-  // styl tylko testowy — do zmiany później
-  container.style.display = "flex";
-  container.style.flexWrap = "wrap";
-  container.style.gap = "10px";
-  container.style.margin = "20px";
-
-  //
-  // Tworzenie miniaturek z JSON
-  //
-  data.coasters.forEach(tpl => {
-
-    const img = document.createElement("img");
-
-    // miniatura szablonu
-    img.src = `../assets/templates/coasters/${tpl.id}/thumb.webp`;
-
-    // styl testowy
-    img.style.width = "120px";
-    img.style.cursor = "pointer";
-    img.style.borderRadius = "8px";
-    img.style.boxShadow = "0 2px 6px rgba(0,0,0,0.2)";
-
-    //
-    // kliknięcie → ładowanie overlay
-    //
-    img.onclick = () => loadOverlay(tpl.id);
-
-    container.appendChild(img);
-  });
-
-  // dodanie galerii na górze strony
-  document.body.prepend(container);
-}
-
-
-
-//
-// ===== ŁADOWANIE RAMKI PROJEKTOWEJ =====
-// Pokazuje plik edit.png jako overlay nad projektem
-//
-function loadOverlay(id) {
-
-  let overlay = document.getElementById("templateOverlay");
-
-  //
-  // jeśli overlay jeszcze nie istnieje → tworzymy
-  //
-  if (!overlay) {
-
-    overlay = document.createElement("img");
-    overlay.id = "templateOverlay";
-
-    // overlay nie blokuje kliknięć
-    overlay.style.position = "absolute";
-    overlay.style.top = "0";
-    overlay.style.left = "0";
-    overlay.style.pointerEvents = "none";
-    overlay.style.width = "100%";
-
-    document.body.appendChild(overlay);
-  }
-
-  // ustawienie ramki szablonu
-  overlay.src =
-    `../assets/templates/coasters/${id}/edit.png`;
-}
-
-
-
-//
-// ===== START SYSTEMU =====
-// uruchamia ładowanie miniatur po wejściu na stronę
-//
-loadTemplates();
-
-</script>
-
-<!-- ===== END TEMP TEMPLATE SYSTEM ===== -->
-  
-<header class="topbar">
-  <div class="brand">Edytor podkładki</div>
-  <div class="shape-switch">
-    <button class="btn" id="btnSquare" type="button">Kwadrat (R=5)</button>
-    <button class="btn" id="btnCircle" type="button">Okrąg</button>
-  </div>
-</header>
-
-<main class="layout">
-  <section class="stage">
-    <div class="stage-inner">
-      <canvas id="canvas" width="1000" height="1000"></canvas>
-
-      <!-- Linia cięcia (9x9 w środku) + podgląd kształtu -->
-      <div id="cutline" class="cutline"></div>
-    </div>
-
-    <div class="hint">
-      Projektujesz na <b>10×10</b> (spady). Linia pokazuje obszar cięcia <b>9×9</b>.
-    </div>
-  </section>
-
-  <aside class="panel">
-    <div class="card">
-      <div class="card-title">1) Wgraj zdjęcie</div>
-      <input class="file" id="upload" type="file" accept="image/*" />
-      <div class="small">Na telefonie możesz wybrać zdjęcie z galerii.</div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">2) Szablon (opcjonalnie)</div>
-      <div id="templates" class="templates">
-        <div class="small">W kolejnym kroku podłączymy Twoje 3 szablony z folderu.</div>
+      <div class="shapeToggle" role="group" aria-label="Kształt podkładki">
+        <button id="btnSquare" class="btn small active" type="button">Kwadrat (R=5)</button>
+        <button id="btnCircle" class="btn small" type="button">Okrąg</button>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">3) Podpis / nick</div>
-      <input class="text" id="signature" type="text" placeholder="np. Kowalski / nick / nr zamówienia" />
-      <div class="small">Na razie zapis będzie do folderu wg tego podpisu (później zrobimy automatyzację).</div>
-    </div>
-  </aside>
-</main>
+    <div class="main">
+      <div class="previewWrap">
+        <div class="preview" id="preview">
+          <canvas id="canvas" width="1181" height="1181"></canvas>
 
-<script src="./editor.js"></script>
+          <!-- Maski/ramki na podgląd -->
+          <div class="clipLayer" id="clipLayer"></div>
+
+          <!-- Linia cięcia 9×9 -->
+          <div class="cutGuide" id="cutGuide"></div>
+        </div>
+
+        <div class="hint">
+          Tip: Na telefonie możesz powiększać/zmniejszać stronę gestem. Docelowo dodamy pinch-zoom w samym podglądzie.
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="card">
+          <div class="cardTitle">1) Wgraj zdjęcie</div>
+          <input id="photoInput" type="file" accept="image/*" />
+          <div class="smallText">Na telefonie możesz wybrać zdjęcie z galerii.</div>
+        </div>
+
+        <div class="card">
+          <div class="cardTitle">2) Szablon (opcjonalnie)</div>
+          <div id="templateGrid" class="templateGrid"></div>
+          <div class="smallText">Kliknij miniaturę, aby nałożyć szablon.</div>
+        </div>
+
+        <div class="card">
+          <div class="cardTitle">3) Podpis / nick</div>
+          <input id="nickInput" type="text" placeholder="np. Kowalski / nick / nr zamówienia" />
+          <div class="smallText">
+            Na razie zapis będzie do folderu wg tego podpisu (automatyzację zrobimy później).
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="cardTitle">Eksport (tymczasowo)</div>
+          <button id="btnDownloadPreview" class="btn" type="button">Pobierz podgląd PNG</button>
+          <button id="btnDownloadPrint" class="btn secondary" type="button">Pobierz plik do druku (print.png)</button>
+          <div class="smallText">
+            „Print” to gotowa ramka produkcyjna z katalogu szablonu. Docelowo wygenerujemy pełny plik do druku (zdjęcie + tekst + szablon).
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./editor.js"></script>
 </body>
 </html>
