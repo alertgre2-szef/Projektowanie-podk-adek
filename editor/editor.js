@@ -1,36 +1,38 @@
 /**
  * ============================================================
- * Edytor podkładek — wersja prosta (GitHub Pages)
+ * Edytor podkładek — wersja prosta
  * ============================================================
- * Założenia:
- * - GitHub Pages nie listuje katalogów → używamy pliku index.json
- * - Wyświetlamy miniatury (thumb.webp)
- * - Na podgląd nakładamy edit.png (ramka do projektowania)
- * - Print (print.png) pobieramy jako plik „produkcyjny” (tymczasowo)
+ * Źródło listy szablonów: assets/templates/index.json
+ * Struktura:
+ * {
+ *   "coasters": [
+ *     { "id": "ramka_01", "title": "Ramka 01" },
+ *     ...
+ *   ]
+ * }
  *
- * Najczęstsze problemy:
- * - zła ścieżka do index.json
- * - inna struktura JSON (coasters vs templates)
- * - brak danych → brak miniatur
+ * Pliki szablonu:
+ * assets/templates/coasters/<id>/thumb.webp
+ * assets/templates/coasters/<id>/edit.png
+ * assets/templates/coasters/<id>/print.png
  * ============================================================
  */
 
-
-/* ============================================================
-   [SEKCJA 0] Diagnostyka / logi
-   ============================================================ */
-console.log("✅ editor.js załadowany | path:", location.pathname);
-window.addEventListener("unhandledrejection", (e) => {
-  console.error("❌ Unhandled Promise Rejection:", e.reason);
-});
-
-
-/* ============================================================
-   [SEKCJA 1] Stałe i elementy DOM
-   ============================================================ */
+/* ===================== [SEKCJA 1] STAŁE ===================== */
 const CANVAS_PX = 1181; // 10cm @ 300dpi ≈ 1181px
-const CUT_RATIO = 0.90; // 9/10 = 0.9
+const CUT_RATIO = 0.90; // 9/10 = 0.9 (na razie niewykorzystane w rysowaniu)
 
+/**
+ * Baza repo liczona automatycznie (żeby nie wpisywać na sztywno).
+ * Dla GH Pages: /Projektowanie-podk-adek/editor/index.html -> /Projektowanie-podk-adek
+ */
+const REPO_BASE = (() => {
+  const p = location.pathname;
+  const i = p.indexOf("/editor/");
+  return i >= 0 ? p.slice(0, i) : "";
+})();
+
+/* ===================== [SEKCJA 2] DOM ===================== */
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
@@ -48,33 +50,25 @@ const templateGrid = document.getElementById("templateGrid");
 const btnDownloadPreview = document.getElementById("btnDownloadPreview");
 const btnDownloadPrint = document.getElementById("btnDownloadPrint");
 
-
-/* ============================================================
-   [SEKCJA 2] Stan aplikacji
-   ============================================================ */
+/* ===================== [SEKCJA 3] STAN ===================== */
 let shape = "square";              // square | circle
 let uploadedImg = null;            // Image()
-let currentTemplate = null;        // { id, name, thumb, edit, print }
+let currentTemplate = null;        // { id, name }
 let templateEditImg = null;        // Image() — overlay do podglądu
 
-
-/* ============================================================
-   [SEKCJA 3] Ustawienia wizualne / zmiana kształtu
-   ============================================================ */
+/* ===================== [SEKCJA 4] KSZTAŁT ===================== */
 function setShape(next) {
   shape = next;
 
-  // UI: aktywny przycisk
-  btnSquare?.classList.toggle("active", shape === "square");
-  btnCircle?.classList.toggle("active", shape === "circle");
+  btnSquare.classList.toggle("active", shape === "square");
+  btnCircle.classList.toggle("active", shape === "circle");
 
-  // Klip na podglądzie (tylko wizualnie)
   if (shape === "circle") {
     clipLayer.style.clipPath = "circle(50% at 50% 50%)";
     cutGuide.style.borderRadius = "999px";
   } else {
-    // zaokrąglenie R=5mm → w px: 5mm = 0.5cm → 0.5cm * 1181px/10cm ≈ 59px
-    const rPx = Math.round(CANVAS_PX * 0.05); // 5% z 1181 ≈ 59
+    // R=5mm -> ~59px
+    const rPx = Math.round(CANVAS_PX * 0.05);
     clipLayer.style.clipPath = `inset(0 round ${rPx}px)`;
     cutGuide.style.borderRadius = "10px";
   }
@@ -82,18 +76,10 @@ function setShape(next) {
   redraw();
 }
 
-// Podpinamy przyciski kształtu (jeśli elementy istnieją)
-if (btnSquare && btnCircle) {
-  btnSquare.addEventListener("click", () => setShape("square"));
-  btnCircle.addEventListener("click", () => setShape("circle"));
-} else {
-  console.warn("⚠️ Brak btnSquare/btnCircle w DOM — sprawdź index.html");
-}
+btnSquare.addEventListener("click", () => setShape("square"));
+btnCircle.addEventListener("click", () => setShape("circle"));
 
-
-/* ============================================================
-   [SEKCJA 4] Rysowanie na canvas (podgląd)
-   ============================================================ */
+/* ===================== [SEKCJA 5] RYSOWANIE ===================== */
 function clear() {
   ctx.clearRect(0, 0, CANVAS_PX, CANVAS_PX);
   ctx.fillStyle = "#ffffff";
@@ -101,7 +87,6 @@ function clear() {
 }
 
 function drawPhotoCover(img) {
-  // Prosty „cover” na całe 10x10
   const iw = img.naturalWidth;
   const ih = img.naturalHeight;
   const scale = Math.max(CANVAS_PX / iw, CANVAS_PX / ih);
@@ -119,22 +104,12 @@ function drawTemplateEditOverlay() {
 
 function redraw() {
   clear();
-
-  if (uploadedImg) {
-    drawPhotoCover(uploadedImg);
-  }
-
-  // Nakładka „edit”
+  if (uploadedImg) drawPhotoCover(uploadedImg);
   drawTemplateEditOverlay();
-
-  // (Tekst dodamy później)
 }
 
-
-/* ============================================================
-   [SEKCJA 5] Wgrywanie zdjęcia
-   ============================================================ */
-photoInput?.addEventListener("change", async (e) => {
+/* ===================== [SEKCJA 6] WCZYTANIE ZDJĘCIA ===================== */
+photoInput.addEventListener("change", (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
 
@@ -148,87 +123,25 @@ photoInput?.addEventListener("change", async (e) => {
   img.src = url;
 });
 
-
-/* ============================================================
-   [SEKCJA 6] Szablony (index.json) + miniatury
-   ============================================================ */
-
-/**
- * Uwaga dot. GH Pages:
- * Repo jest pod adresem:
- *   https://<user>.github.io/Projektowanie-podk-adek/
- * Dlatego twardy base "/Projektowanie-podk-adek" jest OK.
- */
-const REPO_BASE = "/Projektowanie-podk-adek";
-
-/**
- * W Twoim projekcie spotkaliśmy 2 warianty lokalizacji index.json:
- * 1) assets/templates/index.json           (na screenie)
- * 2) assets/templates/coasters/index.json  (stara ścieżka)
- *
- * I 2 warianty struktury danych:
- * A) { "coasters": [ {id, title} ] }
- * B) { "templates": [ {id, name} ] }
- *
- * Ten loader obsługuje oba.
- */
+/* ===================== [SEKCJA 7] SZABLONY ===================== */
 async function loadTemplates() {
-  const candidates = [
-    `${REPO_BASE}/assets/templates/index.json`,
-    `${REPO_BASE}/assets/templates/coasters/index.json`,
-  ];
+  const url = `${REPO_BASE}/assets/templates/index.json`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Nie mogę wczytać: ${url} (HTTP ${res.status})`);
 
-  let lastErr = null;
+  const data = await res.json();
+  const list = Array.isArray(data?.coasters) ? data.coasters : [];
 
-  for (const url of candidates) {
-    try {
-      console.log("➡️ Próba wczytania szablonów:", url);
-      const res = await fetch(url, { cache: "no-store" });
-      console.log("⬅️ status:", res.status, url);
-
-      if (!res.ok) throw new Error(`HTTP ${res.status} dla ${url}`);
-      const data = await res.json();
-
-      // Normalizacja: wspieramy data.coasters i data.templates
-      const rawList = Array.isArray(data?.coasters)
-        ? data.coasters
-        : Array.isArray(data?.templates)
-          ? data.templates
-          : [];
-
-      if (!rawList.length) {
-        console.warn("⚠️ index.json wczytany, ale lista jest pusta lub ma inną strukturę:", data);
-      }
-
-      // Normalizacja pól: title/name → name
-      const normalized = rawList.map((t) => ({
-        id: t.id,
-        name: t.name || t.title || t.id,
-      })).filter(t => !!t.id);
-
-      console.log("✅ Szablony znormalizowane:", normalized);
-      return normalized;
-    } catch (err) {
-      lastErr = err;
-      console.warn("⚠️ Nie udało się z:", url, err);
-    }
-  }
-
-  // Jeśli wszystkie próby padły:
-  throw lastErr || new Error("Nie udało się wczytać żadnego index.json");
+  // normalizacja (title -> name)
+  return list
+    .filter((t) => t && t.id)
+    .map((t) => ({ id: t.id, name: t.title || t.name || t.id }));
 }
 
-/**
- * Buduje URL folderu szablonu, np.
- * /Projektowanie-podk-adek/assets/templates/coasters/ramka_01/
- */
 function templateFolderUrl(id) {
   return `${REPO_BASE}/assets/templates/coasters/${encodeURIComponent(id)}/`;
 }
 
-/**
- * Renderuje siatkę miniatur szablonów w #templateGrid
- */
 function renderTemplateGrid(templates) {
   templateGrid.innerHTML = "";
 
@@ -254,12 +167,8 @@ function renderTemplateGrid(templates) {
   });
 }
 
-/**
- * Wczytuje edit.png jako overlay na canvas i odrysowuje podgląd
- */
 async function applyTemplate(t) {
   const url = templateFolderUrl(t.id) + "edit.png";
-
   const img = new Image();
   img.crossOrigin = "anonymous";
   img.onload = () => {
@@ -267,17 +176,13 @@ async function applyTemplate(t) {
     redraw();
   };
   img.onerror = () => {
-    console.error("❌ Nie mogę wczytać edit.png:", url);
+    console.error("Nie mogę wczytać:", url);
   };
   img.src = url;
 }
 
-
-/* ============================================================
-   [SEKCJA 7] Eksport
-   ============================================================ */
-btnDownloadPreview?.addEventListener("click", () => {
-  // Zapis podglądu (to co widzi klient)
+/* ===================== [SEKCJA 8] EKSPORT ===================== */
+btnDownloadPreview.addEventListener("click", () => {
   const a = document.createElement("a");
   const nick = (nickInput.value || "projekt").trim().replace(/[^\w\-]+/g, "_");
   a.download = `${nick}_preview.png`;
@@ -285,14 +190,13 @@ btnDownloadPreview?.addEventListener("click", () => {
   a.click();
 });
 
-btnDownloadPrint?.addEventListener("click", async () => {
+btnDownloadPrint.addEventListener("click", () => {
   if (!currentTemplate) {
-    alert("Najpierw wybierz szablon (opcjonalnie), żeby pobrać plik print.png.");
+    alert("Najpierw wybierz szablon, żeby pobrać plik print.png.");
     return;
   }
-  const url = templateFolderUrl(currentTemplate.id) + "print.png";
 
-  // Pobierz plik bez otwierania nowej karty
+  const url = templateFolderUrl(currentTemplate.id) + "print.png";
   const a = document.createElement("a");
   const nick = (nickInput.value || "projekt").trim().replace(/[^\w\-]+/g, "_");
   a.download = `${nick}_${currentTemplate.id}_print.png`;
@@ -300,33 +204,21 @@ btnDownloadPrint?.addEventListener("click", async () => {
   a.click();
 });
 
-
-/* ============================================================
-   [SEKCJA 8] Start aplikacji
-   ============================================================ */
+/* ===================== [SEKCJA 9] START ===================== */
 (async function init() {
-  console.log("✅ init() start");
-
-  // Domyślne ustawienia
   setShape("square");
 
   try {
     const templates = await loadTemplates();
     renderTemplateGrid(templates);
 
-    // (Opcjonalnie) automatycznie wybierz pierwszy template jako demo
     if (templates[0]) {
       currentTemplate = templates[0];
       await applyTemplate(templates[0]);
     }
   } catch (err) {
-    console.error("❌ Błąd init() / szablony:", err);
-    templateGrid.innerHTML = `
-      <div class="smallText">
-        Nie udało się wczytać szablonów. Sprawdź plik:
-        <br><b>assets/templates/index.json</b> lub <b>assets/templates/coasters/index.json</b>
-        <br>oraz strukturę JSON (coasters/templates).
-      </div>`;
+    console.error(err);
+    templateGrid.innerHTML = `<div class="smallText">Nie udało się wczytać szablonów.</div>`;
   }
 
   redraw();
