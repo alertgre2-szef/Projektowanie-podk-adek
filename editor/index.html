@@ -8,6 +8,116 @@
 </head>
 <body>
 
+<!-- =========================================================
+     TEMPORARY TEMPLATE GALLERY SYSTEM
+     ---------------------------------------------------------
+     Cel:
+     - Testowe ładowanie miniatur szablonów
+     - Kliknięcie → ładuje ramkę projektową (edit.png)
+
+     To rozwiązanie jest tymczasowe — docelowo:
+     → będzie podłączone pod backend / bazę danych
+     → miniatury będą generowane dynamicznie
+
+     Autor: Future You + ChatGPT 😄
+========================================================= -->
+
+<script>
+
+//
+// ===== ŁADOWANIE LISTY SZABLONÓW =====
+// Pobiera plik index.json z katalogu templates
+// i tworzy galerię miniatur
+//
+async function loadTemplates() {
+
+  // pobranie danych o szablonach
+  const res = await fetch("../assets/templates/index.json");
+  const data = await res.json();
+
+  // kontener galerii miniatur
+  const container = document.createElement("div");
+  container.id = "templateGallery";
+
+  // styl tylko testowy — do zmiany później
+  container.style.display = "flex";
+  container.style.flexWrap = "wrap";
+  container.style.gap = "10px";
+  container.style.margin = "20px";
+
+  //
+  // Tworzenie miniaturek z JSON
+  //
+  data.coasters.forEach(tpl => {
+
+    const img = document.createElement("img");
+
+    // miniatura szablonu
+    img.src = `../assets/templates/coasters/${tpl.id}/thumb.webp`;
+
+    // styl testowy
+    img.style.width = "120px";
+    img.style.cursor = "pointer";
+    img.style.borderRadius = "8px";
+    img.style.boxShadow = "0 2px 6px rgba(0,0,0,0.2)";
+
+    //
+    // kliknięcie → ładowanie overlay
+    //
+    img.onclick = () => loadOverlay(tpl.id);
+
+    container.appendChild(img);
+  });
+
+  // dodanie galerii na górze strony
+  document.body.prepend(container);
+}
+
+
+
+//
+// ===== ŁADOWANIE RAMKI PROJEKTOWEJ =====
+// Pokazuje plik edit.png jako overlay nad projektem
+//
+function loadOverlay(id) {
+
+  let overlay = document.getElementById("templateOverlay");
+
+  //
+  // jeśli overlay jeszcze nie istnieje → tworzymy
+  //
+  if (!overlay) {
+
+    overlay = document.createElement("img");
+    overlay.id = "templateOverlay";
+
+    // overlay nie blokuje kliknięć
+    overlay.style.position = "absolute";
+    overlay.style.top = "0";
+    overlay.style.left = "0";
+    overlay.style.pointerEvents = "none";
+    overlay.style.width = "100%";
+
+    document.body.appendChild(overlay);
+  }
+
+  // ustawienie ramki szablonu
+  overlay.src =
+    `../assets/templates/coasters/${id}/edit.png`;
+}
+
+
+
+//
+// ===== START SYSTEMU =====
+// uruchamia ładowanie miniatur po wejściu na stronę
+//
+loadTemplates();
+
+</script>
+
+<!-- ===== END TEMP TEMPLATE SYSTEM ===== -->
+  
 <header class="topbar">
   <div class="brand">Edytor podkładki</div>
   <div class="shape-switch">
