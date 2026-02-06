@@ -1,0 +1,138 @@
+:root{
+  --max: 720px;
+  --gap: 12px;
+  --border: 1px solid rgba(0,0,0,.15);
+}
+
+*{ box-sizing: border-box; }
+body{
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: #f6f7f9;
+  color: #111;
+}
+
+.topbar{
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #fff;
+  border-bottom: var(--border);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+.brand{ font-weight: 700; }
+.shape-switch{ display: flex; gap: 8px; flex-wrap: wrap; }
+
+.btn{
+  padding: 10px 12px;
+  border: var(--border);
+  background: #fff;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.btn.active{
+  outline: 2px solid rgba(0,0,0,.35);
+}
+
+.layout{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap);
+  padding: 12px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* mobile-first: najpierw podgląd, panel pod spodem */
+.stage{
+  background: #fff;
+  border: var(--border);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.stage-inner{
+  width: 100%;
+  max-width: var(--max);
+  margin: 0 auto;
+  position: relative;
+  aspect-ratio: 1 / 1;  /* zawsze kwadrat */
+  border: var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  touch-action: none;
+}
+canvas{
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.cutline{
+  position: absolute;
+  left: 5%;
+  top: 5%;
+  width: 90%;
+  height: 90%;
+  border: 2px dashed rgba(0,0,0,.35);
+  border-radius: 12px; /* dla kwadratu z rogami */
+  pointer-events: none;
+}
+
+.hint{
+  margin-top: 10px;
+  font-size: 14px;
+  opacity: .9;
+}
+
+.panel{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap);
+}
+
+.card{
+  background: #fff;
+  border: var(--border);
+  border-radius: 14px;
+  padding: 12px;
+}
+.card-title{
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.small{
+  font-size: 13px;
+  opacity: .75;
+  margin-top: 6px;
+}
+
+.file, .text{
+  width: 100%;
+  padding: 10px;
+  border: var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.templates{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* tablet/desktop: panel obok */
+@media (min-width: 900px){
+  .layout{
+    grid-template-columns: 1.2fr .8fr;
+    align-items: start;
+  }
+  .panel{
+    position: sticky;
+    top: 62px;
+  }
+}
