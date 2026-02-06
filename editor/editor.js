@@ -156,3 +156,178 @@ photoInput?.addEventListener("change", async (e) => {
 /**
  * Uwaga dot. GH Pages:
  * Repo jest pod adresem:
+ *   https://<user>.github.io/Projektowanie-podk-adek/
+ * Dlatego twardy base "/Projektowanie-podk-adek" jest OK.
+ */
+const REPO_BASE = "/Projektowanie-podk-adek";
+
+/**
+ * W Twoim projekcie spotkaliśmy 2 warianty lokalizacji index.json:
+ * 1) assets/templates/index.json           (na screenie)
+ * 2) assets/templates/coasters/index.json  (stara ścieżka)
+ *
+ * I 2 warianty struktury danych:
+ * A) { "coasters": [ {id, title} ] }
+ * B) { "templates": [ {id, name} ] }
+ *
+ * Ten loader obsługuje oba.
+ */
+async function loadTemplates() {
+  const candidates = [
+    `${REPO_BASE}/assets/templates/index.json`,
+    `${REPO_BASE}/assets/templates/coasters/index.json`,
+  ];
+
+  let lastErr = null;
+
+  for (const url of candidates) {
+    try {
+      console.log("➡️ Próba wczytania szablonów:", url);
+      const res = await fetch(url, { cache: "no-store" });
+      console.log("⬅️ status:", res.status, url);
+
+      if (!res.ok) throw new Error(`HTTP ${res.status} dla ${url}`);
+      const data = await res.json();
+
+      // Normalizacja: wspieramy data.coasters i data.templates
+      const rawList = Array.isArray(data?.coasters)
+        ? data.coasters
+        : Array.isArray(data?.templates)
+          ? data.templates
+          : [];
+
+      if (!rawList.length) {
+        console.warn("⚠️ index.json wczytany, ale lista jest pusta lub ma inną strukturę:", data);
+      }
+
+      // Normalizacja pól: title/name → name
+      const normalized = rawList.map((t) => ({
+        id: t.id,
+        name: t.name || t.title || t.id,
+      })).filter(t => !!t.id);
+
+      console.log("✅ Szablony znormalizowane:", normalized);
+      return normalized;
+    } catch (err) {
+      lastErr = err;
+      console.warn("⚠️ Nie udało się z:", url, err);
+    }
+  }
+
+  // Jeśli wszystkie próby padły:
+  throw lastErr || new Error("Nie udało się wczytać żadnego index.json");
+}
+
+/**
+ * Buduje URL folderu szablonu, np.
+ * /Projektowanie-podk-adek/assets/templates/coasters/ramka_01/
+ */
+function templateFolderUrl(id) {
+  return `${REPO_BASE}/assets/templates/coasters/${encodeURIComponent(id)}/`;
+}
+
+/**
+ * Renderuje siatkę miniatur szablonów w #templateGrid
+ */
+function renderTemplateGrid(templates) {
+  templateGrid.innerHTML = "";
+
+  templates.forEach((t) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "templateItem";
+    item.title = t.name || t.id;
+
+    const img = document.createElement("img");
+    img.alt = t.name || t.id;
+    img.loading = "lazy";
+    img.src = templateFolderUrl(t.id) + "thumb.webp";
+
+    item.appendChild(img);
+
+    item.addEventListener("click", async () => {
+      currentTemplate = t;
+      await applyTemplate(t);
+    });
+
+    templateGrid.appendChild(item);
+  });
+}
+
+/**
+ * Wczytuje edit.png jako overlay na canvas i odrysowuje podgląd
+ */
+async function applyTemplate(t) {
+  const url = templateFolderUrl(t.id) + "edit.png";
+
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => {
+    templateEditImg = img;
+    redraw();
+  };
+  img.onerror = () => {
+    console.error("❌ Nie mogę wczytać edit.png:", url);
+  };
+  img.src = url;
+}
+
+
+/* ============================================================
+   [SEKCJA 7] Eksport
+   ============================================================ */
+btnDownloadPreview?.addEventListener("click", () => {
+  // Zapis podglądu (to co widzi klient)
+  const a = document.createElement("a");
+  const nick = (nickInput.value || "projekt").trim().replace(/[^\w\-]+/g, "_");
+  a.download = `${nick}_preview.png`;
+  a.href = canvas.toDataURL("image/png");
+  a.click();
+});
+
+btnDownloadPrint?.addEventListener("click", async () => {
+  if (!currentTemplate) {
+    alert("Najpierw wybierz szablon (opcjonalnie), żeby pobrać plik print.png.");
+    return;
+  }
+  const url = templateFolderUrl(currentTemplate.id) + "print.png";
+
+  // Pobierz plik bez otwierania nowej karty
+  const a = document.createElement("a");
+  const nick = (nickInput.value || "projekt").trim().replace(/[^\w\-]+/g, "_");
+  a.download = `${nick}_${currentTemplate.id}_print.png`;
+  a.href = url;
+  a.click();
+});
+
+
+/* ============================================================
+   [SEKCJA 8] Start aplikacji
+   ============================================================ */
+(async function init() {
+  console.log("✅ init() start");
+
+  // Domyślne ustawienia
+  setShape("square");
+
+  try {
+    const templates = await loadTemplates();
+    renderTemplateGrid(templates);
+
+    // (Opcjonalnie) automatycznie wybierz pierwszy template jako demo
+    if (templates[0]) {
+      currentTemplate = templates[0];
+      await applyTemplate(templates[0]);
+    }
+  } catch (err) {
+    console.error("❌ Błąd init() / szablony:", err);
+    templateGrid.innerHTML = `
+      <div class="smallText">
+        Nie udało się wczytać szablonów. Sprawdź plik:
+        <br><b>assets/templates/index.json</b> lub <b>assets/templates/coasters/index.json</b>
+        <br>oraz strukturę JSON (coasters/templates).
+      </div>`;
+  }
+
+  redraw();
+})();
