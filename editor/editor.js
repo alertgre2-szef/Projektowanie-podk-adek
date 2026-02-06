@@ -111,14 +111,17 @@ photoInput.addEventListener("change", async (e) => {
 async function loadTemplates() {
   // Ścieżka względna do editor/
   // editor/… → assets/… to: ../assets/…
-  const res = await fetch("../assets/templates/coasters/index.json", { cache: "no-store" });
+ const REPO_BASE = "/Projektowanie-podk-adek";
+const res = await fetch(`${REPO_BASE}/assets/templates/coasters/index.json`, { cache: "no-store" });
+
   if (!res.ok) throw new Error("Nie mogę wczytać index.json z szablonami.");
   const data = await res.json();
   return data.templates || [];
 }
 
 function templateFolderUrl(id) {
-  return `../assets/templates/coasters/${encodeURIComponent(id)}/`;
+  const REPO_BASE = "/Projektowanie-podk-adek";
+return `${REPO_BASE}/assets/templates/coasters/${encodeURIComponent(id)}/`;
 }
 
 function renderTemplateGrid(templates) {
