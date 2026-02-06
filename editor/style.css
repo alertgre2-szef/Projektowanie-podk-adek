@@ -72,4 +72,139 @@ body {
 
   /* 4 warstwy przygaszenia: góra / dół / lewo / prawo */
   background:
-    linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) top / 100% 5% no-
+    linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) top / 100% 5% no-repeat,
+    linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) bottom / 100% 5% no-repeat,
+    linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) left / 5% 90% no-repeat,
+    linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) right / 5% 90% no-repeat;
+}
+
+/* Warstwa klipu (kształt) */
+.clipLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+  /* maska ustawiana w JS przez clip-path */
+}
+
+/* Linia cięcia 9×9 (90% pola) */
+.cutGuide {
+  position: absolute;
+  left: 5%;
+  top: 5%;
+  width: 90%;
+  height: 90%;
+  border: 2px dashed rgba(0,0,0,0.55);
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: 15;
+}
+
+/* Panel */
+.panel {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.cardTitle { font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+
+.smallText { margin-top: 8px; font-size: 12px; color: #6b7280; line-height: 1.35; }
+
+input[type="file"], input[type="text"] {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #111827;
+  background: #111827;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn.secondary {
+  border-color: #d1d5db;
+  background: #fff;
+  color: #111827;
+}
+
+.btn.small {
+  width: auto;
+  padding: 8px 10px;
+  font-size: 12px;
+  margin-top: 0;
+}
+
+.btn.active {
+  background: #111827;
+  color: #fff;
+}
+
+.btn.small:not(.active) {
+  background: #fff;
+  color: #111827;
+  border-color: #d1d5db;
+}
+
+.templateGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.templateItem {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  cursor: pointer;
+  transition: transform 0.08s ease;
+}
+
+.templateItem:hover { transform: scale(1.01); }
+
+.templateItem img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* kafelek "Brak" (bez miniatury) */
+.templateItem--none {
+  display: grid;
+  place-items: center;
+  min-height: 72px;
+  font-weight: 700;
+  color: #111827;
+  background: #fff;
+}
+
+.hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .preview { max-width: 100%; }
+  .templateGrid { grid-template-columns: repeat(2, 1fr); }
+}
