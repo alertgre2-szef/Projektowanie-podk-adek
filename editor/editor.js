@@ -18,8 +18,9 @@
  *
  * WERSJA: poprawki:
  * - start bez domyślnego szablonu (czysty obszar projektowania)
- * - eksport PRINT = zdjęcie + print.png (jeden plik do druku)
- * - zachowany eksport PREVIEW (to co widać w edytorze)
+ * - dodany „pusty szablon” (klik = wyłącza szablon) BEZ dodatkowego przycisku
+ * - eksport PRINT = zdjęcie + print.png (overlay produkcyjny)
+ * - eksport PREVIEW jak dotychczas
  * ============================================================
  */
 
@@ -58,7 +59,7 @@ const btnDownloadPrint = document.getElementById("btnDownloadPrint");
 /* ===================== [SEKCJA 3] STAN ===================== */
 let shape = "square";              // square | circle
 let uploadedImg = null;            // Image()
-let currentTemplate = null;        // { id, name }
+let currentTemplate = null;        // { id, name } lub null
 let templateEditImg = null;        // Image() — overlay do podglądu (edit.png)
 
 /* ===================== [SEKCJA 4] KSZTAŁT ===================== */
@@ -138,9 +139,13 @@ async function loadTemplates() {
   const list = Array.isArray(data?.coasters) ? data.coasters : [];
 
   // normalizacja (title -> name)
-  return list
+  const normalized = list
     .filter((t) => t && t.id)
     .map((t) => ({ id: t.id, name: t.title || t.name || t.id }));
+
+  // DODAJEMY „PUSTY SZABLON” na początek (klik = brak ramki)
+  // Nie wymaga żadnych plików PNG.
+  return [{ id: "__none__", name: "Brak szablonu" }, ...normalized];
 }
 
 function templateFolderUrl(id) {
@@ -155,6 +160,17 @@ function renderTemplateGrid(templates) {
     item.type = "button";
     item.className = "templateItem";
     item.title = t.name || t.id;
+
+    // Dla „brak szablonu” robimy kafelek tekstowy (bez obrazka)
+    if (t.id === "__none__") {
+      item.classList.add("templateItem--none");
+      item.textContent = "Brak";
+      item.addEventListener("click", () => {
+        clearTemplateSelection();
+      });
+      templateGrid.appendChild(item);
+      return;
+    }
 
     const img = document.createElement("img");
     img.alt = t.name || t.id;
@@ -187,7 +203,7 @@ async function applyTemplate(t) {
 }
 
 /**
- * Czyści wybrany szablon (start bez ramki)
+ * Czyści wybrany szablon (klik w „Brak”)
  */
 function clearTemplateSelection() {
   currentTemplate = null;
@@ -207,7 +223,6 @@ btnDownloadPreview.addEventListener("click", () => {
 /**
  * Eksport do druku:
  * - generujemy PNG: zdjęcie + print.png (overlay produkcyjny)
- * - jeśli nie wybrano szablonu: nie eksportujemy (bo nie ma print.png)
  */
 btnDownloadPrint.addEventListener("click", () => {
   if (!uploadedImg) {
@@ -253,13 +268,12 @@ btnDownloadPrint.addEventListener("click", () => {
 (async function init() {
   setShape("square");
 
-  // start bez domyślnego szablonu (czyścimy ewentualny stan)
+  // start bez domyślnego szablonu
   clearTemplateSelection();
 
   try {
     const templates = await loadTemplates();
     renderTemplateGrid(templates);
-    // brak auto-wyboru pierwszego szablonu
   } catch (err) {
     console.error(err);
     templateGrid.innerHTML = `<div class="smallText">Nie udało się wczytać szablonów.</div>`;
