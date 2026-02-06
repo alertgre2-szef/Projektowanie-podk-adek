@@ -1,0 +1,7 @@
+{
+  "coasters": [
+    { "id": "ramka_01", "title": "Ramka 01" },
+    { "id": "ramka_02", "title": "Ramka 02" },
+    { "id": "serce_01", "title": "Serce 01" }
+  ]
+}
