@@ -211,11 +211,11 @@ btnDownloadPrint.addEventListener("click", () => {
   try {
     const templates = await loadTemplates();
     renderTemplateGrid(templates);
-
+/* kod usunięty, aby nie było pierwszego szablonu jako domyślnego
     if (templates[0]) {
       currentTemplate = templates[0];
       await applyTemplate(templates[0]);
-    }
+    } */
   } catch (err) {
     console.error(err);
     templateGrid.innerHTML = `<div class="smallText">Nie udało się wczytać szablonów.</div>`;
