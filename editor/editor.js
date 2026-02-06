@@ -15,6 +15,11 @@
  * assets/templates/coasters/<id>/thumb.webp
  * assets/templates/coasters/<id>/edit.png
  * assets/templates/coasters/<id>/print.png
+ *
+ * WERSJA: poprawki:
+ * - start bez domyślnego szablonu (czysty obszar projektowania)
+ * - eksport PRINT = zdjęcie + print.png (jeden plik do druku)
+ * - zachowany eksport PREVIEW (to co widać w edytorze)
  * ============================================================
  */
 
@@ -54,7 +59,7 @@ const btnDownloadPrint = document.getElementById("btnDownloadPrint");
 let shape = "square";              // square | circle
 let uploadedImg = null;            // Image()
 let currentTemplate = null;        // { id, name }
-let templateEditImg = null;        // Image() — overlay do podglądu
+let templateEditImg = null;        // Image() — overlay do podglądu (edit.png)
 
 /* ===================== [SEKCJA 4] KSZTAŁT ===================== */
 function setShape(next) {
@@ -181,6 +186,15 @@ async function applyTemplate(t) {
   img.src = url;
 }
 
+/**
+ * Czyści wybrany szablon (start bez ramki)
+ */
+function clearTemplateSelection() {
+  currentTemplate = null;
+  templateEditImg = null;
+  redraw();
+}
+
 /* ===================== [SEKCJA 8] EKSPORT ===================== */
 btnDownloadPreview.addEventListener("click", () => {
   const a = document.createElement("a");
@@ -190,32 +204,62 @@ btnDownloadPreview.addEventListener("click", () => {
   a.click();
 });
 
+/**
+ * Eksport do druku:
+ * - generujemy PNG: zdjęcie + print.png (overlay produkcyjny)
+ * - jeśli nie wybrano szablonu: nie eksportujemy (bo nie ma print.png)
+ */
 btnDownloadPrint.addEventListener("click", () => {
+  if (!uploadedImg) {
+    alert("Najpierw wgraj zdjęcie.");
+    return;
+  }
   if (!currentTemplate) {
-    alert("Najpierw wybierz szablon, żeby pobrać plik print.png.");
+    alert("Najpierw wybierz szablon (opcjonalnie), aby wygenerować plik do druku.");
     return;
   }
 
-  const url = templateFolderUrl(currentTemplate.id) + "print.png";
-  const a = document.createElement("a");
-  const nick = (nickInput.value || "projekt").trim().replace(/[^\w\-]+/g, "_");
-  a.download = `${nick}_${currentTemplate.id}_print.png`;
-  a.href = url;
-  a.click();
+  const printUrl = templateFolderUrl(currentTemplate.id) + "print.png";
+
+  const printImg = new Image();
+  printImg.crossOrigin = "anonymous";
+
+  printImg.onload = () => {
+    // Render FINAL: zdjęcie + print overlay
+    clear();
+    drawPhotoCover(uploadedImg);
+    ctx.drawImage(printImg, 0, 0, CANVAS_PX, CANVAS_PX);
+
+    // Zapis
+    const a = document.createElement("a");
+    const nick = (nickInput.value || "projekt").trim().replace(/[^\w\-]+/g, "_");
+    a.download = `${nick}_${currentTemplate.id}_PRINT.png`;
+    a.href = canvas.toDataURL("image/png");
+    a.click();
+
+    // Przywróć podgląd (edit overlay)
+    redraw();
+  };
+
+  printImg.onerror = () => {
+    alert("Nie mogę wczytać print.png dla wybranego szablonu.");
+    console.error("Nie mogę wczytać:", printUrl);
+  };
+
+  printImg.src = printUrl;
 });
 
 /* ===================== [SEKCJA 9] START ===================== */
 (async function init() {
   setShape("square");
 
+  // start bez domyślnego szablonu (czyścimy ewentualny stan)
+  clearTemplateSelection();
+
   try {
     const templates = await loadTemplates();
     renderTemplateGrid(templates);
-/* kod usunięty, aby nie było pierwszego szablonu jako domyślnego
-    if (templates[0]) {
-      currentTemplate = templates[0];
-      await applyTemplate(templates[0]);
-    } */
+    // brak auto-wyboru pierwszego szablonu
   } catch (err) {
     console.error(err);
     templateGrid.innerHTML = `<div class="smallText">Nie udało się wczytać szablonów.</div>`;
