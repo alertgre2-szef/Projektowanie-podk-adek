@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Edytor podkładki</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">Edytor podkładki</div>
+  <div class="shape-switch">
+    <button class="btn" id="btnSquare" type="button">Kwadrat (R=5)</button>
+    <button class="btn" id="btnCircle" type="button">Okrąg</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="stage">
+    <div class="stage-inner">
+      <canvas id="canvas" width="1000" height="1000"></canvas>
+
+      <!-- Linia cięcia (9x9 w środku) + podgląd kształtu -->
+      <div id="cutline" class="cutline"></div>
+    </div>
+
+    <div class="hint">
+      Projektujesz na <b>10×10</b> (spady). Linia pokazuje obszar cięcia <b>9×9</b>.
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div class="card">
+      <div class="card-title">1) Wgraj zdjęcie</div>
+      <input class="file" id="upload" type="file" accept="image/*" />
+      <div class="small">Na telefonie możesz wybrać zdjęcie z galerii.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">2) Szablon (opcjonalnie)</div>
+      <div id="templates" class="templates">
+        <div class="small">W kolejnym kroku podłączymy Twoje 3 szablony z folderu.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">3) Podpis / nick</div>
+      <input class="text" id="signature" type="text" placeholder="np. Kowalski / nick / nr zamówienia" />
+      <div class="small">Na razie zapis będzie do folderu wg tego podpisu (później zrobimy automatyzację).</div>
+    </div>
+  </aside>
+</main>
+
+<script src="./editor.js"></script>
+</body>
+</html>
