@@ -1,11 +1,33 @@
 /**
- * Edytor podkładek — wersja prosta
- * - GitHub Pages nie potrafi listować katalogów → używamy index.json
+ * ============================================================
+ * Edytor podkładek — wersja prosta (GitHub Pages)
+ * ============================================================
+ * Założenia:
+ * - GitHub Pages nie listuje katalogów → używamy pliku index.json
  * - Wyświetlamy miniatury (thumb.webp)
  * - Na podgląd nakładamy edit.png (ramka do projektowania)
  * - Print (print.png) pobieramy jako plik „produkcyjny” (tymczasowo)
+ *
+ * Najczęstsze problemy:
+ * - zła ścieżka do index.json
+ * - inna struktura JSON (coasters vs templates)
+ * - brak danych → brak miniatur
+ * ============================================================
  */
 
+
+/* ============================================================
+   [SEKCJA 0] Diagnostyka / logi
+   ============================================================ */
+console.log("✅ editor.js załadowany | path:", location.pathname);
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("❌ Unhandled Promise Rejection:", e.reason);
+});
+
+
+/* ============================================================
+   [SEKCJA 1] Stałe i elementy DOM
+   ============================================================ */
 const CANVAS_PX = 1181; // 10cm @ 300dpi ≈ 1181px
 const CUT_RATIO = 0.90; // 9/10 = 0.9
 
@@ -26,18 +48,25 @@ const templateGrid = document.getElementById("templateGrid");
 const btnDownloadPreview = document.getElementById("btnDownloadPreview");
 const btnDownloadPrint = document.getElementById("btnDownloadPrint");
 
-// Stan
+
+/* ============================================================
+   [SEKCJA 2] Stan aplikacji
+   ============================================================ */
 let shape = "square";              // square | circle
 let uploadedImg = null;            // Image()
 let currentTemplate = null;        // { id, name, thumb, edit, print }
 let templateEditImg = null;        // Image() — overlay do podglądu
 
-// Ustawienia wizualne
+
+/* ============================================================
+   [SEKCJA 3] Ustawienia wizualne / zmiana kształtu
+   ============================================================ */
 function setShape(next) {
   shape = next;
 
-  btnSquare.classList.toggle("active", shape === "square");
-  btnCircle.classList.toggle("active", shape === "circle");
+  // UI: aktywny przycisk
+  btnSquare?.classList.toggle("active", shape === "square");
+  btnCircle?.classList.toggle("active", shape === "circle");
 
   // Klip na podglądzie (tylko wizualnie)
   if (shape === "circle") {
@@ -53,10 +82,18 @@ function setShape(next) {
   redraw();
 }
 
-btnSquare.addEventListener("click", () => setShape("square"));
-btnCircle.addEventListener("click", () => setShape("circle"));
+// Podpinamy przyciski kształtu (jeśli elementy istnieją)
+if (btnSquare && btnCircle) {
+  btnSquare.addEventListener("click", () => setShape("square"));
+  btnCircle.addEventListener("click", () => setShape("circle"));
+} else {
+  console.warn("⚠️ Brak btnSquare/btnCircle w DOM — sprawdź index.html");
+}
 
-// Rysowanie
+
+/* ============================================================
+   [SEKCJA 4] Rysowanie na canvas (podgląd)
+   ============================================================ */
 function clear() {
   ctx.clearRect(0, 0, CANVAS_PX, CANVAS_PX);
   ctx.fillStyle = "#ffffff";
@@ -90,10 +127,14 @@ function redraw() {
   // Nakładka „edit”
   drawTemplateEditOverlay();
 
-  // (Na razie nie rysujemy tekstu — dodamy w kolejnym kroku)
+  // (Tekst dodamy później)
 }
 
-photoInput.addEventListener("change", async (e) => {
+
+/* ============================================================
+   [SEKCJA 5] Wgrywanie zdjęcia
+   ============================================================ */
+photoInput?.addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
 
@@ -107,99 +148,11 @@ photoInput.addEventListener("change", async (e) => {
   img.src = url;
 });
 
-// Templates (index.json)
-async function loadTemplates() {
-  // Ścieżka względna do editor/
-  // editor/… → assets/… to: ../assets/…
- const REPO_BASE = "/Projektowanie-podk-adek";
-const res = await fetch(`${REPO_BASE}/assets/templates/coasters/index.json`, { cache: "no-store" });
 
-  if (!res.ok) throw new Error("Nie mogę wczytać index.json z szablonami.");
-  const data = await res.json();
-  return data.templates || [];
-}
+/* ============================================================
+   [SEKCJA 6] Szablony (index.json) + miniatury
+   ============================================================ */
 
-function templateFolderUrl(id) {
-  const REPO_BASE = "/Projektowanie-podk-adek";
-return `${REPO_BASE}/assets/templates/coasters/${encodeURIComponent(id)}/`;
-}
-
-function renderTemplateGrid(templates) {
-  templateGrid.innerHTML = "";
-
-  templates.forEach((t) => {
-    const item = document.createElement("div");
-    item.className = "templateItem";
-    item.title = t.name || t.id;
-
-    const img = document.createElement("img");
-    img.alt = t.name || t.id;
-    img.src = templateFolderUrl(t.id) + "thumb.webp";
-
-    item.appendChild(img);
-
-    item.addEventListener("click", async () => {
-      currentTemplate = t;
-      await applyTemplate(t);
-    });
-
-    templateGrid.appendChild(item);
-  });
-}
-
-async function applyTemplate(t) {
-  // Wczytaj edit.png i odrysuj
-  const url = templateFolderUrl(t.id) + "edit.png";
-  const img = new Image();
-  img.crossOrigin = "anonymous";
-  img.onload = () => {
-    templateEditImg = img;
-    redraw();
-  };
-  img.src = url;
-}
-
-btnDownloadPreview.addEventListener("click", () => {
-  // Zapis podglądu (to co widzi klient)
-  const a = document.createElement("a");
-  const nick = (nickInput.value || "projekt").trim().replace(/[^\w\-]+/g, "_");
-  a.download = `${nick}_preview.png`;
-  a.href = canvas.toDataURL("image/png");
-  a.click();
-});
-
-btnDownloadPrint.addEventListener("click", async () => {
-  if (!currentTemplate) {
-    alert("Najpierw wybierz szablon (opcjonalnie), żeby pobrać plik print.png.");
-    return;
-  }
-  const url = templateFolderUrl(currentTemplate.id) + "print.png";
-
-  // Pobierz plik bez otwierania nowej karty
-  const a = document.createElement("a");
-  const nick = (nickInput.value || "projekt").trim().replace(/[^\w\-]+/g, "_");
-  a.download = `${nick}_${currentTemplate.id}_print.png`;
-  a.href = url;
-  a.click();
-});
-
-// Start
-(async function init() {
-  setShape("square");
-
-  try {
-    const templates = await loadTemplates();
-    renderTemplateGrid(templates);
-
-    // automatycznie wybierz pierwszy template jako demo (możesz wywalić)
-    if (templates[0]) {
-      currentTemplate = templates[0];
-      await applyTemplate(templates[0]);
-    }
-  } catch (err) {
-    console.error(err);
-    templateGrid.innerHTML = `<div class="smallText">Nie udało się wczytać szablonów. Sprawdź, czy istnieje plik: assets/templates/coasters/index.json</div>`;
-  }
-
-  redraw();
-})();
+/**
+ * Uwaga dot. GH Pages:
+ * Repo jest pod adresem:
