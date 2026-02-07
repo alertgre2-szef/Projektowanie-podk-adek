@@ -13,8 +13,8 @@ const PRINT_DPI = 300;
 
 // Nowe progi jakości wg Twojej propozycji:
 const DPI_WEAK_MAX = 50;     // 0–50  = słaba
-const DPI_MED_MAX = 100;     // 50–100 = średnia
-const DPI_GOOD_MAX = 200;    // 100–200 = dobra
+const DPI_MED_MAX = 120;     // 50–120 = średnia
+const DPI_GOOD_MAX = 200;    // 120–200 = dobra
 // 200+ = super
 
 const REPO_BASE = (() => {
