@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * Edytor podkładek — wersja prosta
+ * Edytor podkładek — wersja prosta (UX+)
  * ============================================================
  */
 
@@ -32,11 +32,23 @@ const btnCircle = document.getElementById("btnCircle");
 const clipLayer = document.getElementById("clipLayer");
 const shadeLayer = document.getElementById("shadeLayer");
 const cutGuide = document.getElementById("cutGuide");
+const safeGuide = document.getElementById("safeGuide");
 
 const templateGrid = document.getElementById("templateGrid");
 
 const btnDownloadPreview = document.getElementById("btnDownloadPreview");
 const btnDownloadPrint = document.getElementById("btnDownloadPrint");
+
+/* UX: toolbar + status + toast */
+const btnUndo = document.getElementById("btnUndo");
+const btnRedo = document.getElementById("btnRedo");
+const btnZoomOut = document.getElementById("btnZoomOut");
+const btnZoomIn = document.getElementById("btnZoomIn");
+const btnFit = document.getElementById("btnFit");
+const btnCenter = document.getElementById("btnCenter");
+
+const statusBar = document.getElementById("statusBar");
+const toastContainer = document.getElementById("toastContainer");
 
 // żeby dotyk nie scrollował strony podczas przesuwania/zoom
 canvas.style.touchAction = "none";
@@ -61,7 +73,138 @@ let offsetY = 0;
 const MIN_USER_SCALE = 1.0;
 const MAX_USER_SCALE = 6.0;
 
-/* ===================== [SEKCJA 4] KSZTAŁT + SPADY ===================== */
+/* ===================== [SEKCJA 3B] TOAST + STATUS + HISTORIA ===================== */
+function toast(msg, ms = 2200) {
+  if (!toastContainer) return;
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.textContent = msg;
+  toastContainer.appendChild(el);
+
+  window.setTimeout(() => {
+    el.remove();
+  }, ms);
+}
+
+function fmtZoomPct() {
+  return `${Math.round(userScale * 100)}%`;
+}
+
+function templateName() {
+  if (!currentTemplate) return "—";
+  return currentTemplate?.name || currentTemplate?.id || "—";
+}
+
+function updateStatusBar() {
+  if (!statusBar) return;
+  const sh = shape === "circle" ? "Okrąg" : "Kwadrat";
+  statusBar.textContent = `Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()}`;
+}
+
+/* ---- Undo/Redo (5 kroków) ---- */
+const HISTORY_MAX = 5;
+let history = [];
+let historyIndex = -1;
+let suppressHistory = false;
+
+function snapshot() {
+  return {
+    shape,
+    userScale,
+    offsetX,
+    offsetY,
+    templateId: currentTemplate ? currentTemplate.id : null,
+  };
+}
+
+function sameSnap(a, b) {
+  if (!a || !b) return false;
+  return (
+    a.shape === b.shape &&
+    a.userScale === b.userScale &&
+    a.offsetX === b.offsetX &&
+    a.offsetY === b.offsetY &&
+    a.templateId === b.templateId
+  );
+}
+
+function pushHistory(reason = "") {
+  if (suppressHistory) return;
+
+  const snap = snapshot();
+  const last = history[historyIndex];
+
+  // nie spamujemy identycznymi stanami
+  if (last && sameSnap(last, snap)) return;
+
+  // jeśli jesteśmy "w środku" historii, utnij przyszłość
+  if (historyIndex < history.length - 1) {
+    history = history.slice(0, historyIndex + 1);
+  }
+
+  history.push(snap);
+
+  // limit
+  if (history.length > HISTORY_MAX) {
+    history.shift();
+  }
+
+  historyIndex = history.length - 1;
+  updateUndoRedoButtons();
+}
+
+function updateUndoRedoButtons() {
+  if (btnUndo) btnUndo.disabled = historyIndex <= 0;
+  if (btnRedo) btnRedo.disabled = historyIndex >= history.length - 1;
+
+  // UX: lekko “wyszarz” gdy disabled
+  if (btnUndo) btnUndo.style.opacity = btnUndo.disabled ? "0.5" : "1";
+  if (btnRedo) btnRedo.style.opacity = btnRedo.disabled ? "0.5" : "1";
+}
+
+async function applyStateFromHistory(snap) {
+  if (!snap) return;
+
+  suppressHistory = true;
+
+  // shape
+  setShape(snap.shape, { skipHistory: true });
+
+  // template
+  if (!snap.templateId) {
+    clearTemplateSelection({ skipHistory: true });
+  } else {
+    // odtwórz currentTemplate minimalnie
+    currentTemplate = { id: snap.templateId, name: snap.templateId };
+    await applyTemplate(currentTemplate, { skipHistory: true, silentErrors: true });
+  }
+
+  // transform
+  userScale = clamp(snap.userScale, MIN_USER_SCALE, MAX_USER_SCALE);
+  offsetX = snap.offsetX;
+  offsetY = snap.offsetY;
+
+  applyClampToOffsets();
+  redraw();
+  updateStatusBar();
+
+  suppressHistory = false;
+  updateUndoRedoButtons();
+}
+
+async function undo() {
+  if (historyIndex <= 0) return;
+  historyIndex--;
+  await applyStateFromHistory(history[historyIndex]);
+}
+
+async function redo() {
+  if (historyIndex >= history.length - 1) return;
+  historyIndex++;
+  await applyStateFromHistory(history[historyIndex]);
+}
+
+/* ===================== [SEKCJA 4] KSZTAŁT + SPADY + SAFE ===================== */
 function setShadeSquare() {
   shadeLayer.style.clipPath = "";
   shadeLayer.style.background =
@@ -72,7 +215,7 @@ function setShadeSquare() {
 }
 
 function setShadeCircle() {
-  // Próg przyciemnienia zgodny z tym, co ustawiasz w DevTools:
+  // Próg przyciemnienia zgodny z DevTools:
   // rgba(0,0,0,0) do 63%, od 63% przyciemnienie do 100%.
   const CIRCLE_SHADE_STOP_PCT = 63;
 
@@ -85,7 +228,16 @@ function setShadeCircle() {
     `rgba(0,0,0,0.50) 100%)`;
 }
 
-function setShape(next) {
+function setSafeGuideForShape() {
+  if (!safeGuide) return;
+  if (shape === "circle") {
+    safeGuide.style.borderRadius = "999px";
+  } else {
+    safeGuide.style.borderRadius = "10px";
+  }
+}
+
+function setShape(next, opts = {}) {
   shape = next;
 
   btnSquare.classList.toggle("active", shape === "square");
@@ -102,7 +254,11 @@ function setShape(next) {
     setShadeSquare();
   }
 
+  setSafeGuideForShape();
   redraw();
+  updateStatusBar();
+
+  if (!opts.skipHistory) pushHistory("shape");
 }
 
 btnSquare.addEventListener("click", () => setShape("square"));
@@ -207,6 +363,9 @@ photoInput.addEventListener("change", (e) => {
     uploadedImg = img;
     resetPhotoTransformToCover();
     redraw();
+    updateStatusBar();
+    pushHistory("photo-load");
+    toast("Zdjęcie wgrane ✅");
     URL.revokeObjectURL(url);
   };
 
@@ -255,6 +414,27 @@ function setUserScaleKeepingPoint(newUserScale, anchorPxX, anchorPxY) {
 
   applyClampToOffsets();
   redraw();
+  updateStatusBar();
+}
+
+function fitToCover() {
+  if (!uploadedImg) return;
+  resetPhotoTransformToCover();
+  redraw();
+  updateStatusBar();
+  pushHistory("fit");
+  toast("Dopasowano kadr");
+}
+
+function centerPhoto() {
+  if (!uploadedImg) return;
+  offsetX = 0;
+  offsetY = 0;
+  applyClampToOffsets();
+  redraw();
+  updateStatusBar();
+  pushHistory("center");
+  toast("Wyśrodkowano");
 }
 
 let isDragging = false;
@@ -264,6 +444,10 @@ let dragLastY = 0;
 const pointers = new Map();
 let pinchStartDist = 0;
 let pinchStartScale = 1;
+
+/* UX: batch historii dla drag/pinch */
+let gestureActive = false;
+let gestureMoved = false;
 
 function distance(a, b) {
   const dx = a.x - b.x;
@@ -281,6 +465,11 @@ canvas.addEventListener("pointerdown", (e) => {
   canvas.setPointerCapture(e.pointerId);
   const p = clientToCanvasPx(e.clientX, e.clientY);
   pointers.set(e.pointerId, { x: p.x, y: p.y });
+
+  if (!gestureActive) {
+    gestureActive = true;
+    gestureMoved = false;
+  }
 
   if (pointers.size === 1) {
     isDragging = true;
@@ -314,6 +503,7 @@ canvas.addEventListener("pointermove", (e) => {
       const factor = d / pinchStartDist;
       const nextScale = pinchStartScale * factor;
       setUserScaleKeepingPoint(nextScale, c.x, c.y);
+      gestureMoved = true;
     }
     e.preventDefault();
     return;
@@ -323,6 +513,8 @@ canvas.addEventListener("pointermove", (e) => {
     const dx = p.x - dragLastX;
     const dy = p.y - dragLastY;
 
+    if (Math.abs(dx) + Math.abs(dy) > 0) gestureMoved = true;
+
     offsetX += dx;
     offsetY += dy;
 
@@ -331,6 +523,7 @@ canvas.addEventListener("pointermove", (e) => {
 
     applyClampToOffsets();
     redraw();
+    updateStatusBar();
     e.preventDefault();
   }
 });
@@ -346,6 +539,12 @@ function endPointer(e) {
 
   if (pointers.size === 0) {
     isDragging = false;
+
+    if (gestureActive) {
+      if (gestureMoved) pushHistory("gesture");
+      gestureActive = false;
+      gestureMoved = false;
+    }
   }
 
   e.preventDefault();
@@ -364,10 +563,66 @@ canvas.addEventListener(
     const zoom = e.deltaY < 0 ? 1.08 : 1 / 1.08;
     setUserScaleKeepingPoint(userScale * zoom, x, y);
 
+    // historia: tylko na koniec "serii" wheel (debounce)
+    wheelHistoryCommit();
     e.preventDefault();
   },
   { passive: false }
 );
+
+let wheelTimer = 0;
+function wheelHistoryCommit() {
+  if (wheelTimer) window.clearTimeout(wheelTimer);
+  wheelTimer = window.setTimeout(() => {
+    pushHistory("wheel");
+    wheelTimer = 0;
+  }, 180);
+}
+
+/* ===================== [SEKCJA 6C] TOOLBAR BUTTONS ===================== */
+if (btnFit) btnFit.addEventListener("click", fitToCover);
+if (btnCenter) btnCenter.addEventListener("click", centerPhoto);
+
+if (btnZoomIn) {
+  btnZoomIn.addEventListener("click", () => {
+    if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
+    const r = canvas.getBoundingClientRect();
+    const x = CANVAS_PX / 2;
+    const y = CANVAS_PX / 2;
+    setUserScaleKeepingPoint(userScale * 1.12, x, y);
+    pushHistory("zoom+");
+  });
+}
+
+if (btnZoomOut) {
+  btnZoomOut.addEventListener("click", () => {
+    if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
+    const x = CANVAS_PX / 2;
+    const y = CANVAS_PX / 2;
+    setUserScaleKeepingPoint(userScale / 1.12, x, y);
+    pushHistory("zoom-");
+  });
+}
+
+if (btnUndo) btnUndo.addEventListener("click", undo);
+if (btnRedo) btnRedo.addEventListener("click", redo);
+
+/* skróty klawiaturowe (desktop) */
+window.addEventListener("keydown", (e) => {
+  const isMac = navigator.platform.toLowerCase().includes("mac");
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+
+  if (mod && !e.shiftKey && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    undo();
+    return;
+  }
+  if ((mod && e.shiftKey && e.key.toLowerCase() === "z") || (mod && e.key.toLowerCase() === "y")) {
+    e.preventDefault();
+    redo();
+    return;
+  }
+});
 
 /* ===================== [SEKCJA 7] SZABLONY ===================== */
 async function loadTemplates() {
@@ -400,7 +655,7 @@ function renderTemplateGrid(templates) {
     if (t.id === "__none__") {
       item.textContent = "Brak";
       item.classList.add("templateItem--none");
-      item.onclick = clearTemplateSelection;
+      item.onclick = () => clearTemplateSelection();
       templateGrid.appendChild(item);
       return;
     }
@@ -413,13 +668,16 @@ function renderTemplateGrid(templates) {
     item.onclick = async () => {
       currentTemplate = t;
       await applyTemplate(t);
+      updateStatusBar();
+      pushHistory("template");
+      toast(`Wybrano szablon: ${templateName()}`);
     };
 
     templateGrid.appendChild(item);
   });
 }
 
-async function applyTemplate(t) {
+async function applyTemplate(t, opts = {}) {
   const url = withV(templateFolderUrl(t.id) + "edit.png");
   const img = new Image();
   img.crossOrigin = "anonymous";
@@ -430,16 +688,21 @@ async function applyTemplate(t) {
   };
 
   img.onerror = () => {
-    console.error("Nie mogę wczytać:", url);
+    if (!opts.silentErrors) {
+      console.error("Nie mogę wczytać:", url);
+      toast("Nie mogę wczytać szablonu.");
+    }
   };
 
   img.src = url;
 }
 
-function clearTemplateSelection() {
+function clearTemplateSelection(opts = {}) {
   currentTemplate = null;
   templateEditImg = null;
   redraw();
+  updateStatusBar();
+  if (!opts.skipHistory) pushHistory("template-none");
 }
 
 /* ===================== [SEKCJA 8] EKSPORT ===================== */
@@ -449,15 +712,16 @@ btnDownloadPreview.addEventListener("click", () => {
   a.download = `${nick}_preview.png`;
   a.href = canvas.toDataURL("image/png");
   a.click();
+  toast("Zapisano PODGLĄD PNG ✅");
 });
 
 btnDownloadPrint.addEventListener("click", () => {
   if (!uploadedImg) {
-    alert("Najpierw wgraj zdjęcie.");
+    toast("Najpierw wgraj zdjęcie.");
     return;
   }
   if (!currentTemplate) {
-    alert("Najpierw wybierz szablon, aby wygenerować plik do druku.");
+    toast("Wybierz szablon, aby wygenerować plik do druku.");
     return;
   }
 
@@ -477,10 +741,11 @@ btnDownloadPrint.addEventListener("click", () => {
     a.click();
 
     redraw();
+    toast("Zapisano DRUK PNG ✅");
   };
 
   printImg.onerror = () => {
-    alert("Nie mogę wczytać print.png dla wybranego szablonu.");
+    toast("Nie mogę wczytać print.png dla wybranego szablonu.");
     console.error("Nie mogę wczytać:", printUrl);
   };
 
@@ -489,8 +754,8 @@ btnDownloadPrint.addEventListener("click", () => {
 
 /* ===================== [SEKCJA 9] START ===================== */
 (async function init() {
-  setShape("square");
-  clearTemplateSelection();
+  setShape("square", { skipHistory: true });
+  clearTemplateSelection({ skipHistory: true });
 
   try {
     const templates = await loadTemplates();
@@ -498,7 +763,12 @@ btnDownloadPrint.addEventListener("click", () => {
   } catch (err) {
     console.error(err);
     templateGrid.innerHTML = `<div class="smallText">Nie udało się wczytać szablonów.</div>`;
+    toast("Nie udało się wczytać szablonów.");
   }
 
   redraw();
+  updateStatusBar();
+
+  // start historii
+  pushHistory("init");
 })();
