@@ -20,7 +20,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-07-05";
+const CACHE_VERSION = "2026-02-07-06";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -28,6 +28,8 @@ function withV(url) {
 /* ===================== [SEKCJA 2] DOM ===================== */
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
+
+const previewEl = document.getElementById("preview");
 
 const photoInput = document.getElementById("photoInput");
 const nickInput = document.getElementById("nickInput");
@@ -56,6 +58,7 @@ const btnCenter = document.getElementById("btnCenter");
 const statusBar = document.getElementById("statusBar");
 const toastContainer = document.getElementById("toastContainer");
 
+// żeby dotyk nie scrollował strony podczas przesuwania/zoom
 canvas.style.touchAction = "none";
 
 /* ===================== [SEKCJA 3] STAN ===================== */
@@ -327,44 +330,53 @@ function setSafeGuideForShape() {
 }
 
 /**
- * DANGER (żółta strefa) — rysujemy pewnie w px:
- * - outer: 90% (cut) => inset = 5% = 0.05 * CANVAS_PX
- * - thickness: 5% => 0.05 * CANVAS_PX
- * - inner = 80% (safe)
+ * DANGER (żółta strefa) — liczymy w CSS px na bazie REALNEGO #preview,
+ * żeby ring zawsze był dokładnie 5%..10% niezależnie od skalowania.
  */
+let dangerRingEl = null;
 function renderDangerOverlay() {
-  if (!dangerLayer) return;
+  if (!dangerLayer || !previewEl) return;
 
-  // wyczyść poprzedni wariant (gradienty/procenty) i dzieci
-  dangerLayer.style.background = "";
-  dangerLayer.innerHTML = "";
-
-  const insetPx = Math.round(CANVAS_PX * 0.05);      // 59px
-  const thickPx = Math.round(CANVAS_PX * 0.05);      // 59px
-
-  const ring = document.createElement("div");
-  ring.style.position = "absolute";
-  ring.style.left = `${insetPx}px`;
-  ring.style.top = `${insetPx}px`;
-  ring.style.width = `${CANVAS_PX - insetPx * 2}px`;
-  ring.style.height = `${CANVAS_PX - insetPx * 2}px`;
-  ring.style.boxSizing = "border-box";
-  ring.style.pointerEvents = "none";
-  ring.style.border = `${thickPx}px solid rgba(255, 208, 0, 0.22)`;
-  ring.style.zIndex = "14";
-  ring.style.mixBlendMode = "multiply";
-
-  if (shape === "circle") {
-    ring.style.borderRadius = "9999px";
-  } else {
-    // chcemy żeby wewnętrzny narożnik mniej więcej trzymał się 10px jak safe/cutGuide,
-    // więc outer radius = innerRadius + grubość
-    const innerR = 10;
-    ring.style.borderRadius = `${innerR + thickPx}px`;
+  if (!dangerRingEl) {
+    dangerRingEl = document.createElement("div");
+    dangerRingEl.style.position = "absolute";
+    dangerRingEl.style.boxSizing = "border-box";
+    dangerRingEl.style.pointerEvents = "none";
+    dangerRingEl.style.zIndex = "14";
+    dangerRingEl.style.mixBlendMode = "multiply";
+    dangerLayer.appendChild(dangerRingEl);
   }
 
-  dangerLayer.appendChild(ring);
+  const r = previewEl.getBoundingClientRect();
+  const size = Math.min(r.width, r.height);
+
+  // 5% i 5% w realnych px (CSS px)
+  const insetPx = Math.round(size * 0.05);
+  const thickPx = Math.round(size * 0.05);
+
+  dangerRingEl.style.left = `${insetPx}px`;
+  dangerRingEl.style.top = `${insetPx}px`;
+  dangerRingEl.style.width = `${Math.max(0, size - insetPx * 2)}px`;
+  dangerRingEl.style.height = `${Math.max(0, size - insetPx * 2)}px`;
+  dangerRingEl.style.border = `${thickPx}px solid rgba(255, 208, 0, 0.22)`;
+
+  if (shape === "circle") {
+    dangerRingEl.style.borderRadius = "9999px";
+  } else {
+    // zachowujemy podobny feeling jak guide (wewnątrz ~10px)
+    const innerR = 10;
+    dangerRingEl.style.borderRadius = `${innerR + thickPx}px`;
+  }
 }
+
+let resizeRaf = 0;
+window.addEventListener("resize", () => {
+  if (resizeRaf) cancelAnimationFrame(resizeRaf);
+  resizeRaf = requestAnimationFrame(() => {
+    renderDangerOverlay();
+    resizeRaf = 0;
+  });
+});
 
 function setShape(next, opts = {}) {
   shape = next;
@@ -900,4 +912,7 @@ btnDownloadPrint.addEventListener("click", () => {
   redraw();
   updateStatusBar();
   pushHistory();
+
+  // po pierwszym renderze (kiedy layout już się ułożył)
+  requestAnimationFrame(() => renderDangerOverlay());
 })();
