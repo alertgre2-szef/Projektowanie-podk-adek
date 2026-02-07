@@ -80,7 +80,7 @@ function setShadeCircle() {
 
   shadeLayer.style.clipPath = "";
   shadeLayer.style.background =
-    `radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 0 ${rStr}, rgba(0,0,0,0.50) ${rStr} 100%)`;
+    `radial-gradient(circle at 63% 63%, rgba(0,0,0,0) 0 ${rStr}, rgba(0,0,0,0.50) ${rStr} 100%)`;
 }
 
 function setShape(next) {
