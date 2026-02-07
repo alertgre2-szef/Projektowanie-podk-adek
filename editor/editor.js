@@ -11,9 +11,11 @@ const CUT_RATIO = 0.90;
 // Założenie produkcyjne: 1181 px = 10 cm @ 300 DPI
 const PRINT_DPI = 300;
 
-// Progi ostrzeżeń (możesz zmienić, jeśli chcesz bardziej/ mniej czułe)
-const WARN_DPI = 260;        // ostrzeżenie
-const STRONG_WARN_DPI = 200; // mocne ostrzeżenie
+// Nowe progi jakości wg Twojej propozycji:
+const DPI_WEAK_MAX = 50;     // 0–50  = słaba
+const DPI_MED_MAX = 100;     // 50–100 = średnia
+const DPI_GOOD_MAX = 200;    // 100–200 = dobra
+// 200+ = super
 
 const REPO_BASE = (() => {
   const p = location.pathname;
@@ -21,7 +23,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-07-01";
+const CACHE_VERSION = "2026-02-07-02";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -111,17 +113,61 @@ function getEffectiveDpi() {
   return PRINT_DPI / s;
 }
 
+function qualityLabelFromDpi(dpi) {
+  if (dpi == null) return "—";
+  if (dpi < DPI_WEAK_MAX) return "Słaba";
+  if (dpi < DPI_MED_MAX) return "Średnia";
+  if (dpi < DPI_GOOD_MAX) return "Dobra";
+  return "Super";
+}
+
+function applyStatusBarQualityStyle(dpi) {
+  if (!statusBar) return;
+
+  // Delikatne, “czytelne” tła (żeby nie przeszkadzały w czytaniu)
+  // Słaba: lekko czerwone
+  // Średnia: lekko żółte
+  // Dobra: lekko zielone
+  // Super: trochę mocniejsza zieleń (ale nadal pastel)
+  let bg = "#f8fafc";
+  let border = "#e5e7eb";
+
+  if (dpi == null) {
+    bg = "#f8fafc";
+    border = "#e5e7eb";
+  } else if (dpi < DPI_WEAK_MAX) {
+    bg = "#ffe8e8";
+    border = "#f5b5b5";
+  } else if (dpi < DPI_MED_MAX) {
+    bg = "#fff6d6";
+    border = "#f1d08a";
+  } else if (dpi < DPI_GOOD_MAX) {
+    bg = "#e9fbe9";
+    border = "#9bd59b";
+  } else {
+    bg = "#ddf7e3";
+    border = "#6fcf8a";
+  }
+
+  statusBar.style.background = bg;
+  statusBar.style.borderColor = border;
+}
+
 let qualityWarnLevel = 0; // 0=brak, 1=warn, 2=strong (żeby nie spamować)
+function levelFromDpi(dpi) {
+  if (dpi == null) return 0;
+  if (dpi < DPI_WEAK_MAX) return 2;      // mocne
+  if (dpi < DPI_MED_MAX) return 1;       // ostrzeżenie
+  return 0;                              // OK (dobra/super)
+}
+
 function maybeWarnQuality(force = false) {
   if (!uploadedImg) return;
 
   const dpi = getEffectiveDpi();
   if (!dpi) return;
 
-  let level = 0;
-  if (dpi < STRONG_WARN_DPI) level = 2;
-  else if (dpi < WARN_DPI) level = 1;
-
+  const level = levelFromDpi(dpi);
   if (!force && level <= qualityWarnLevel) return;
   qualityWarnLevel = level;
 
@@ -133,17 +179,10 @@ function maybeWarnQuality(force = false) {
     , 5200);
   } else if (level === 1) {
     toast(
-      `Uwaga: zdjęcie jest na granicy jakości (ok. ${Math.round(dpi)} DPI). ` +
+      `Uwaga: zdjęcie ma średnią jakość (ok. ${Math.round(dpi)} DPI). ` +
       `Jeśli możesz, użyj oryginalnego pliku – komunikatory często pogarszają jakość przez kompresję.`
     , 4800);
   }
-}
-
-function qualityLabelFromDpi(dpi) {
-  if (dpi == null) return "—";
-  if (dpi >= WARN_DPI) return "OK";
-  if (dpi >= STRONG_WARN_DPI) return "Uwaga";
-  return "Słaba";
 }
 
 function updateStatusBar() {
@@ -156,6 +195,8 @@ function updateStatusBar() {
 
   statusBar.textContent =
     `Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | DPI: ${dpiStr} | Jakość: ${q}`;
+
+  applyStatusBarQualityStyle(dpi);
 }
 
 /* ---- Undo/Redo (5 kroków) ---- */
@@ -666,7 +707,7 @@ window.addEventListener("keydown", (e) => {
   if ((mod && e.shiftKey && e.key.toLowerCase() === "z") || (mod && e.key.toLowerCase() === "y")) {
     e.preventDefault();
     redo();
-    return;
+   	return;
   }
 });
 
