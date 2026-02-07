@@ -20,7 +20,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-07-08";
+const CACHE_VERSION = "2026-02-07-09";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -339,10 +339,6 @@ function setSafeGuideForShape() {
   safeGuide.style.borderRadius = shape === "circle" ? "999px" : "10px";
 }
 
-/**
- * DANGER (żółta strefa) — liczymy w CSS px na bazie REALNEGO #preview,
- * żeby ring zawsze był dokładnie 5%..10% niezależnie od skalowania.
- */
 let dangerRingEl = null;
 function renderDangerOverlay() {
   if (!dangerLayer || !previewEl) return;
@@ -360,7 +356,6 @@ function renderDangerOverlay() {
   const r = previewEl.getBoundingClientRect();
   const size = Math.min(r.width, r.height);
 
-  // 5% i 5% w realnych px (CSS px)
   const insetPx = Math.round(size * 0.05);
   const thickPx = Math.round(size * 0.05);
 
@@ -373,7 +368,6 @@ function renderDangerOverlay() {
   if (shape === "circle") {
     dangerRingEl.style.borderRadius = "9999px";
   } else {
-    // zachowujemy podobny feeling jak guide (wewnątrz ~10px)
     const innerR = 10;
     dangerRingEl.style.borderRadius = `${innerR + thickPx}px`;
   }
@@ -938,7 +932,6 @@ function setUiLocked(locked) {
 
 function showFinalOverlay(title, msg) {
   if (!finalOverlay) {
-    // awaryjnie
     alert(`${title}\n\n${msg}`);
     return;
   }
@@ -946,17 +939,37 @@ function showFinalOverlay(title, msg) {
   if (finalOverlayMsg) finalOverlayMsg.textContent = msg;
 
   finalOverlay.style.display = "flex";
-
-  // zablokuj scroll i interakcje „pod spodem”
   document.documentElement.style.overflow = "hidden";
   document.body.style.overflow = "hidden";
 }
 
-function renderPrintPngBlob() {
+/**
+ * Render „produkcyjny” PNG:
+ * - jeśli jest szablon: foto + print.png
+ * - jeśli brak szablonu: samo foto (bez szablonu)
+ */
+function renderProductionPngBlob() {
   return new Promise((resolve, reject) => {
     if (!uploadedImg) return reject(new Error("Brak zdjęcia"));
-    if (!currentTemplate) return reject(new Error("Brak szablonu"));
 
+    // brak szablonu -> sam render zdjęcia
+    if (!currentTemplate) {
+      try {
+        clear();
+        drawPhotoTransformed(uploadedImg);
+        canvas.toBlob((blob) => {
+          redraw();
+          if (!blob) return reject(new Error("Nie udało się wygenerować PNG"));
+          resolve(blob);
+        }, "image/png");
+      } catch (e) {
+        redraw();
+        reject(e);
+      }
+      return;
+    }
+
+    // jest szablon -> dokładamy print.png
     const printUrl = withV(templateFolderUrl(currentTemplate.id) + "print.png");
     const printImg = new Image();
     printImg.crossOrigin = "anonymous";
@@ -1037,8 +1050,10 @@ async function uploadToServer(pngBlob, jsonText) {
 async function sendToProduction() {
   if (productionLocked) return;
 
-  if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
-  if (!currentTemplate) return toast("Wybierz szablon, aby wysłać projekt do realizacji.");
+  if (!uploadedImg) {
+    toast("Najpierw wgraj zdjęcie.");
+    return;
+  }
 
   const first = window.confirm("Czy na pewno chcesz wysłać projekt do realizacji?");
   if (!first) return;
@@ -1052,11 +1067,10 @@ async function sendToProduction() {
   toast("Wysyłanie do realizacji…");
 
   try {
-    const pngBlob = await renderPrintPngBlob();
+    const pngBlob = await renderProductionPngBlob();
     const jsonText = buildProjectJson();
     await uploadToServer(pngBlob, jsonText);
 
-    // pełny ekran i koniec
     showFinalOverlay(
       "Wysłano do realizacji ✅",
       "Projekt został przekazany do produkcji. Zmiana nie będzie możliwa."
