@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-06-06";
+const CACHE_VERSION = "2026-02-06-07";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -38,7 +38,7 @@ const templateGrid = document.getElementById("templateGrid");
 const btnDownloadPreview = document.getElementById("btnDownloadPreview");
 const btnDownloadPrint = document.getElementById("btnDownloadPrint");
 
-// ważne dla dotyku (żeby nie “scrollowało” strony zamiast przesuwać/zoomować zdjęcie)
+// żeby dotyk nie scrollował strony podczas przesuwania/zoom
 canvas.style.touchAction = "none";
 
 /* ===================== [SEKCJA 3] STAN ===================== */
@@ -49,12 +49,12 @@ let templateEditImg = null;
 
 /**
  * Transform zdjęcia:
- * - coverScale: automatyczny “cover” na start (żeby wypełnić 10x10)
- * - userScale: zoom użytkownika (min 1.0)
- * - offsetX/Y: przesunięcie w px (w przestrzeni CANVAS_PX)
+ * - coverScale: automatyczny “cover” na start
+ * - userScale: zoom użytkownika
+ * - offsetX/Y: przesunięcie w px
  */
 let coverScale = 1;
-let userScale = 1; // 1 = domyślny cover
+let userScale = 1;
 let offsetX = 0;
 let offsetY = 0;
 
@@ -72,8 +72,10 @@ function setShadeSquare() {
 }
 
 function setShadeCircle() {
-  const CIRCLE_CUT_RATIO = CUT_RATIO;
-  const r = 50 * CIRCLE_CUT_RATIO; // promień w %
+  // UWAGA: okrąg ma być większy niż 9×9 (żeby wyglądał naturalnie)
+  // 0.95 => promień 47.5% (zamiast 45%)
+  const CIRCLE_CUT_RATIO = 0.95;
+  const r = 50 * CIRCLE_CUT_RATIO;
   const rStr = `${r}%`;
 
   shadeLayer.style.clipPath = "";
@@ -122,11 +124,9 @@ function getDrawRect(img, s = coverScale * userScale, ox = offsetX, oy = offsetY
   const w = iw * s;
   const h = ih * s;
 
-  // bazowo wyśrodkowane + przesunięcie użytkownika
   let x = (CANVAS_PX - w) / 2 + ox;
   let y = (CANVAS_PX - h) / 2 + oy;
 
-  // ograniczenia, żeby nie dało się “zgubić” zdjęcia (ma zawsze pokrywać cały canvas)
   const minX = CANVAS_PX - w;
   const maxX = 0;
   const minY = CANVAS_PX - h;
@@ -148,7 +148,6 @@ function applyClampToOffsets() {
   const w = iw * s;
   const h = ih * s;
 
-  // chcemy, żeby x = center + offset było w [minX..maxX]
   const minX = CANVAS_PX - w;
   const maxX = 0;
   const minY = CANVAS_PX - h;
@@ -215,7 +214,7 @@ photoInput.addEventListener("change", (e) => {
 /* ===================== [SEKCJA 6B] DRAG + ZOOM (MYSZ/DOTYK) ===================== */
 function clientToCanvasPx(clientX, clientY) {
   const r = canvas.getBoundingClientRect();
-  const scale = CANVAS_PX / r.width; // canvas jest skalowany CSS-em
+  const scale = CANVAS_PX / r.width;
   const x = (clientX - r.left) * scale;
   const y = (clientY - r.top) * scale;
   return { x, y };
@@ -235,7 +234,6 @@ function setUserScaleKeepingPoint(newUserScale, anchorPxX, anchorPxY) {
   const x1 = (CANVAS_PX - w1) / 2 + offsetX;
   const y1 = (CANVAS_PX - h1) / 2 + offsetY;
 
-  // współrzędne w obrazie pod kursorem/palcami
   const u = (anchorPxX - x1) / s1;
   const v = (anchorPxY - y1) / s1;
 
@@ -257,15 +255,13 @@ function setUserScaleKeepingPoint(newUserScale, anchorPxX, anchorPxY) {
   redraw();
 }
 
-// DRAG (pointer)
 let isDragging = false;
 let dragLastX = 0;
 let dragLastY = 0;
 
-const pointers = new Map(); // pointerId -> {x,y, clientX, clientY}
+const pointers = new Map();
 let pinchStartDist = 0;
 let pinchStartScale = 1;
-let pinchAnchor = null;
 
 function distance(a, b) {
   const dx = a.x - b.x;
@@ -282,7 +278,7 @@ canvas.addEventListener("pointerdown", (e) => {
 
   canvas.setPointerCapture(e.pointerId);
   const p = clientToCanvasPx(e.clientX, e.clientY);
-  pointers.set(e.pointerId, { x: p.x, y: p.y, clientX: e.clientX, clientY: e.clientY });
+  pointers.set(e.pointerId, { x: p.x, y: p.y });
 
   if (pointers.size === 1) {
     isDragging = true;
@@ -291,11 +287,9 @@ canvas.addEventListener("pointerdown", (e) => {
   }
 
   if (pointers.size === 2) {
-    // start pinch
     const pts = Array.from(pointers.values());
     pinchStartDist = distance(pts[0], pts[1]);
     pinchStartScale = userScale;
-    pinchAnchor = mid(pts[0], pts[1]);
     isDragging = false;
   }
 
@@ -307,7 +301,7 @@ canvas.addEventListener("pointermove", (e) => {
   if (!pointers.has(e.pointerId)) return;
 
   const p = clientToCanvasPx(e.clientX, e.clientY);
-  pointers.set(e.pointerId, { x: p.x, y: p.y, clientX: e.clientX, clientY: e.clientY });
+  pointers.set(e.pointerId, { x: p.x, y: p.y });
 
   if (pointers.size === 2) {
     const pts = Array.from(pointers.values());
@@ -345,7 +339,6 @@ function endPointer(e) {
 
   if (pointers.size < 2) {
     pinchStartDist = 0;
-    pinchAnchor = null;
     pinchStartScale = userScale;
   }
 
@@ -360,7 +353,6 @@ canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("pointerleave", endPointer);
 
-// ZOOM kółkiem myszy
 canvas.addEventListener(
   "wheel",
   (e) => {
@@ -473,7 +465,7 @@ btnDownloadPrint.addEventListener("click", () => {
 
   printImg.onload = () => {
     clear();
-    drawPhotoTransformed(uploadedImg); // <- WAŻNE: dokładnie to co klient ustawił
+    drawPhotoTransformed(uploadedImg);
     ctx.drawImage(printImg, 0, 0, CANVAS_PX, CANVAS_PX);
 
     const a = document.createElement("a");
