@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Edytor podkładki</title>
 
-  <link rel="stylesheet" href="./style.css?v=2026-02-06-03" />
+  <link rel="stylesheet" href="./style.css?v=2026-02-07-04" />
 </head>
 <body>
   <div class="app">
@@ -27,25 +27,25 @@
     <div class="main">
       <div class="previewWrap">
 
-        <!-- === TOOLBAR PODGLĄDU === -->
+        <!-- TOOLBAR -->
         <div class="previewToolbar">
-          <button id="btnUndo" class="btn small" type="button">↶ Cofnij</button>
-          <button id="btnRedo" class="btn small" type="button">↷ Ponów</button>
-
+          <button id="btnUndo" class="btn small secondary" type="button">Cofnij</button>
+          <button id="btnRedo" class="btn small secondary" type="button">Ponów</button>
           <div class="toolbarSpacer"></div>
-
-          <button id="btnZoomOut" class="btn small" type="button">−</button>
-          <button id="btnZoomIn" class="btn small" type="button">+</button>
-          <button id="btnFit" class="btn small" type="button">Dopasuj</button>
-          <button id="btnCenter" class="btn small" type="button">Wyśrodkuj</button>
+          <button id="btnZoomOut" class="btn small secondary" type="button">−</button>
+          <button id="btnZoomIn" class="btn small secondary" type="button">+</button>
+          <button id="btnFit" class="btn small secondary" type="button">Dopasuj</button>
+          <button id="btnCenter" class="btn small secondary" type="button">Wyśrodkuj</button>
         </div>
 
         <div class="preview" id="preview">
-
           <canvas id="canvas" width="1181" height="1181"></canvas>
 
-          <!-- warstwa przygaszenia spadu -->
+          <!-- warstwa przygaszenia spadu (poza linią cięcia) -->
           <div class="shadeLayer" id="shadeLayer"></div>
+
+          <!-- NOWE: obszar niebezpieczny (między cięciem a safe area) -->
+          <div class="dangerLayer" id="dangerLayer"></div>
 
           <!-- maski -->
           <div class="clipLayer" id="clipLayer"></div>
@@ -53,20 +53,20 @@
           <!-- linia cięcia -->
           <div class="cutGuide" id="cutGuide"></div>
 
-          <!-- SAFE AREA (5 mm od krawędzi — styl w CSS) -->
+          <!-- SAFE AREA -->
           <div class="safeGuide" id="safeGuide"></div>
+        </div>
 
+        <div class="warnBox">
+          <strong>Uwaga:</strong> Żółta strefa to <b>obszar niebezpieczny</b>.
+          Nie umieszczaj tam ważnych elementów (tekstu, twarzy, logo), bo mogą zostać przycięte.
         </div>
 
         <div class="hint">
-          Przesuń 1 palcem • Zoom 2 palcami • Scroll = zoom
+          Tip: Na telefonie możesz powiększać/zmniejszać stronę gestem.
         </div>
 
-        <!-- === STATUS PROJEKTU === -->
-        <div class="statusBar" id="statusBar">
-          Kształt: — | Szablon: — | Zoom: —
-        </div>
-
+        <div class="statusBar" id="statusBar"></div>
       </div>
 
       <div class="panel">
@@ -96,12 +96,11 @@
     </div>
   </div>
 
-  <!-- TOAST / komunikaty -->
-  <div id="toastContainer" class="toastContainer"></div>
+  <div class="toastContainer" id="toastContainer"></div>
 
-  <script src="./editor.js?v=2026-02-06-03" defer></script>
+  <script src="./editor.js?v=2026-02-07-04" defer></script>
 
-  <!-- wersja aplikacji -->
+  <!-- wyświetlanie wersji -->
   <script>
     window.addEventListener("DOMContentLoaded", () => {
       const el = document.getElementById("appVersion");
