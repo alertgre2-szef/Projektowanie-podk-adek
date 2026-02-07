@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-06-03";
+const CACHE_VERSION = "2026-02-06-04";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -44,7 +44,27 @@ let uploadedImg = null;
 let currentTemplate = null;
 let templateEditImg = null;
 
-/* ===================== [SEKCJA 4] KSZTAŁT ===================== */
+/* ===================== [SEKCJA 4] KSZTAŁT + SPADY ===================== */
+function setShadeSquare() {
+  // Kwadrat: przygaszenie spadu (poza 9×9) jako 4 pasy
+  shadeLayer.style.clipPath = ""; // nie potrzebujemy clip-path (to są pasy)
+  shadeLayer.style.background =
+    "linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) top / 100% 5% no-repeat," +
+    "linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) bottom / 100% 5% no-repeat," +
+    "linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) left / 5% 90% no-repeat," +
+    "linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) right / 5% 90% no-repeat";
+}
+
+function setShadeCircle() {
+  // Okrąg: przygaszamy WSZYSTKO poza okręgiem (dziura w środku)
+  // 90% średnicy => promień = 45% pełnego pola
+  shadeLayer.style.clipPath = ""; // nie używamy clip-path, robimy "dziurę" gradientem
+  shadeLayer.style.background =
+    "radial-gradient(circle at 50% 50%," +
+    "rgba(0,0,0,0) 0 45%," +
+    "rgba(0,0,0,0.50) 45% 100%)";
+}
+
 function setShape(next) {
   shape = next;
 
@@ -53,15 +73,13 @@ function setShape(next) {
 
   if (shape === "circle") {
     clipLayer.style.clipPath = "circle(50% at 50% 50%)";
-    shadeLayer.style.clipPath = "circle(50% at 50% 50%)";
     cutGuide.style.borderRadius = "999px";
+    setShadeCircle();
   } else {
     const rPx = Math.round(CANVAS_PX * 0.05);
-    const inset = `inset(0 round ${rPx}px)`;
-
-    clipLayer.style.clipPath = inset;
-    shadeLayer.style.clipPath = inset;
+    clipLayer.style.clipPath = `inset(0 round ${rPx}px)`;
     cutGuide.style.borderRadius = "10px";
+    setShadeSquare();
   }
 
   redraw();
@@ -176,6 +194,10 @@ async function applyTemplate(t) {
     redraw();
   };
 
+  img.onerror = () => {
+    console.error("Nie mogę wczytać:", url);
+  };
+
   img.src = url;
 }
 
@@ -188,32 +210,46 @@ function clearTemplateSelection() {
 /* ===================== [SEKCJA 8] EKSPORT ===================== */
 btnDownloadPreview.addEventListener("click", () => {
   const a = document.createElement("a");
-  const nick = (nickInput.value || "projekt").replace(/[^\w\-]+/g, "_");
+  const nick = (nickInput.value || "projekt").trim().replace(/[^\w\-]+/g, "_");
   a.download = `${nick}_preview.png`;
-  a.href = canvas.toDataURL();
+  a.href = canvas.toDataURL("image/png");
   a.click();
 });
 
 btnDownloadPrint.addEventListener("click", () => {
-  if (!uploadedImg || !currentTemplate) return;
+  if (!uploadedImg) {
+    alert("Najpierw wgraj zdjęcie.");
+    return;
+  }
+  if (!currentTemplate) {
+    alert("Najpierw wybierz szablon, aby wygenerować plik do druku.");
+    return;
+  }
 
-  const url = withV(templateFolderUrl(currentTemplate.id) + "print.png");
-  const img = new Image();
+  const printUrl = withV(templateFolderUrl(currentTemplate.id) + "print.png");
+  const printImg = new Image();
+  printImg.crossOrigin = "anonymous";
 
-  img.onload = () => {
+  printImg.onload = () => {
     clear();
     drawPhotoCover(uploadedImg);
-    ctx.drawImage(img, 0, 0, CANVAS_PX, CANVAS_PX);
+    ctx.drawImage(printImg, 0, 0, CANVAS_PX, CANVAS_PX);
 
     const a = document.createElement("a");
-    a.download = "print.png";
-    a.href = canvas.toDataURL();
+    const nick = (nickInput.value || "projekt").trim().replace(/[^\w\-]+/g, "_");
+    a.download = `${nick}_${currentTemplate.id}_PRINT.png`;
+    a.href = canvas.toDataURL("image/png");
     a.click();
 
     redraw();
   };
 
-  img.src = url;
+  printImg.onerror = () => {
+    alert("Nie mogę wczytać print.png dla wybranego szablonu.");
+    console.error("Nie mogę wczytać:", printUrl);
+  };
+
+  printImg.src = printUrl;
 });
 
 /* ===================== [SEKCJA 9] START ===================== */
@@ -221,8 +257,13 @@ btnDownloadPrint.addEventListener("click", () => {
   setShape("square");
   clearTemplateSelection();
 
-  const templates = await loadTemplates();
-  renderTemplateGrid(templates);
+  try {
+    const templates = await loadTemplates();
+    renderTemplateGrid(templates);
+  } catch (err) {
+    console.error(err);
+    templateGrid.innerHTML = `<div class="smallText">Nie udało się wczytać szablonów.</div>`;
+  }
 
   redraw();
 })();
