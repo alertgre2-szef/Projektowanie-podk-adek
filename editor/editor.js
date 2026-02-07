@@ -8,14 +8,11 @@
 const CANVAS_PX = 1181;
 const CUT_RATIO = 0.90;
 
-// Założenie produkcyjne: 1181 px = 10 cm @ 300 DPI
 const PRINT_DPI = 300;
 
-// Nowe progi jakości (Ty już zmieniałeś u siebie — zostawiam jak było u mnie)
-const DPI_WEAK_MAX = 50;     // 0–50  = słaba
-const DPI_MED_MAX = 100;     // 50–100 = średnia
-const DPI_GOOD_MAX = 200;    // 100–200 = dobra
-// 200+ = super
+const DPI_WEAK_MAX = 50;
+const DPI_MED_MAX = 100;
+const DPI_GOOD_MAX = 200;
 
 const REPO_BASE = (() => {
   const p = location.pathname;
@@ -23,7 +20,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-07-03";
+const CACHE_VERSION = "2026-02-07-04";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -40,6 +37,7 @@ const btnCircle = document.getElementById("btnCircle");
 
 const clipLayer = document.getElementById("clipLayer");
 const shadeLayer = document.getElementById("shadeLayer");
+const dangerLayer = document.getElementById("dangerLayer");
 const cutGuide = document.getElementById("cutGuide");
 const safeGuide = document.getElementById("safeGuide");
 
@@ -48,7 +46,6 @@ const templateGrid = document.getElementById("templateGrid");
 const btnDownloadPreview = document.getElementById("btnDownloadPreview");
 const btnDownloadPrint = document.getElementById("btnDownloadPrint");
 
-/* UX: toolbar + status + toast */
 const btnUndo = document.getElementById("btnUndo");
 const btnRedo = document.getElementById("btnRedo");
 const btnZoomOut = document.getElementById("btnZoomOut");
@@ -59,7 +56,6 @@ const btnCenter = document.getElementById("btnCenter");
 const statusBar = document.getElementById("statusBar");
 const toastContainer = document.getElementById("toastContainer");
 
-// żeby dotyk nie scrollował strony podczas przesuwania/zoom
 canvas.style.touchAction = "none";
 
 /* ===================== [SEKCJA 3] STAN ===================== */
@@ -77,8 +73,6 @@ const MIN_USER_SCALE = 1.0;
 const MAX_USER_SCALE = 6.0;
 
 /* ===================== [SEKCJA 3B] TOAST + STATUS + HISTORIA + JAKOŚĆ ===================== */
-
-// DOMYŚLNIE 20 sekund
 const TOAST_DEFAULT_MS = 20000;
 
 function toast(msg, ms = TOAST_DEFAULT_MS) {
@@ -87,13 +81,11 @@ function toast(msg, ms = TOAST_DEFAULT_MS) {
   const el = document.createElement("div");
   el.className = "toast";
 
-  // treść
   const text = document.createElement("div");
   text.className = "toastText";
   text.textContent = msg;
   el.appendChild(text);
 
-  // przycisk zamknięcia
   const close = document.createElement("button");
   close.type = "button";
   close.className = "toastClose";
@@ -101,7 +93,6 @@ function toast(msg, ms = TOAST_DEFAULT_MS) {
   close.textContent = "×";
   el.appendChild(close);
 
-  // obsługa zamykania
   let timer = 0;
   const removeToast = () => {
     if (timer) window.clearTimeout(timer);
@@ -116,9 +107,7 @@ function toast(msg, ms = TOAST_DEFAULT_MS) {
 
   toastContainer.appendChild(el);
 
-  timer = window.setTimeout(() => {
-    removeToast();
-  }, ms);
+  timer = window.setTimeout(() => removeToast(), ms);
 }
 
 function fmtZoomPct() {
@@ -172,7 +161,7 @@ function applyStatusBarQualityStyle(dpi) {
   statusBar.style.borderColor = border;
 }
 
-let qualityWarnLevel = 0; // 0=brak, 1=warn, 2=strong
+let qualityWarnLevel = 0;
 
 function levelFromDpi(dpi) {
   if (dpi == null) return 0;
@@ -259,10 +248,7 @@ function pushHistory() {
 
   history.push(snap);
 
-  if (history.length > HISTORY_MAX) {
-    history.shift();
-  }
-
+  if (history.length > HISTORY_MAX) history.shift();
   historyIndex = history.length - 1;
   updateUndoRedoButtons();
 }
@@ -313,7 +299,7 @@ async function redo() {
   await applyStateFromHistory(history[historyIndex]);
 }
 
-/* ===================== [SEKCJA 4] KSZTAŁT + SPADY + SAFE ===================== */
+/* ===================== [SEKCJA 4] KSZTAŁT + SPADY + SAFE + DANGER ===================== */
 function setShadeSquare() {
   shadeLayer.style.clipPath = "";
   shadeLayer.style.background =
@@ -335,6 +321,31 @@ function setShadeCircle() {
     `rgba(0,0,0,0.50) 100%)`;
 }
 
+/* Żółty ring/pasy: między 5% (cięcie) a 10% (safe) */
+function setDangerSquare() {
+  if (!dangerLayer) return;
+  const c = "rgba(255, 208, 0, 0.22)"; // delikatny żółty
+  dangerLayer.style.background =
+    `linear-gradient(${c}, ${c}) 0 5% / 100% 5% no-repeat,` +     /* top band */
+    `linear-gradient(${c}, ${c}) 0 90% / 100% 5% no-repeat,` +    /* bottom band */
+    `linear-gradient(${c}, ${c}) 5% 10% / 5% 80% no-repeat,` +    /* left band */
+    `linear-gradient(${c}, ${c}) 90% 10% / 5% 80% no-repeat`;     /* right band */
+}
+
+function setDangerCircle() {
+  if (!dangerLayer) return;
+  const c = "rgba(255, 208, 0, 0.22)";
+  // cut circle radius ~45% (bo 90% pola), safe radius ~40% (bo 80% pola)
+  dangerLayer.style.background =
+    `radial-gradient(circle at 50% 50%, ` +
+    `rgba(255,255,255,0) 0%, ` +
+    `rgba(255,255,255,0) 40%, ` +
+    `${c} 40%, ` +
+    `${c} 45%, ` +
+    `rgba(255,255,255,0) 45%, ` +
+    `rgba(255,255,255,0) 100%)`;
+}
+
 function setSafeGuideForShape() {
   if (!safeGuide) return;
   safeGuide.style.borderRadius = shape === "circle" ? "999px" : "10px";
@@ -350,11 +361,13 @@ function setShape(next, opts = {}) {
     clipLayer.style.clipPath = "circle(50% at 50% 50%)";
     cutGuide.style.borderRadius = "999px";
     setShadeCircle();
+    setDangerCircle();
   } else {
     const rPx = Math.round(CANVAS_PX * 0.05);
     clipLayer.style.clipPath = `inset(0 round ${rPx}px)`;
     cutGuide.style.borderRadius = "10px";
     setShadeSquare();
+    setDangerSquare();
   }
 
   setSafeGuideForShape();
@@ -695,9 +708,7 @@ if (btnCenter) btnCenter.addEventListener("click", centerPhoto);
 if (btnZoomIn) {
   btnZoomIn.addEventListener("click", () => {
     if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
-    const x = CANVAS_PX / 2;
-    const y = CANVAS_PX / 2;
-    setUserScaleKeepingPoint(userScale * 1.12, x, y);
+    setUserScaleKeepingPoint(userScale * 1.12, CANVAS_PX / 2, CANVAS_PX / 2);
     pushHistory();
   });
 }
@@ -705,9 +716,7 @@ if (btnZoomIn) {
 if (btnZoomOut) {
   btnZoomOut.addEventListener("click", () => {
     if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
-    const x = CANVAS_PX / 2;
-    const y = CANVAS_PX / 2;
-    setUserScaleKeepingPoint(userScale / 1.12, x, y);
+    setUserScaleKeepingPoint(userScale / 1.12, CANVAS_PX / 2, CANVAS_PX / 2);
     pushHistory();
   });
 }
