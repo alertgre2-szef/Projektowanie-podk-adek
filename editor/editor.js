@@ -20,10 +20,24 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-07-06";
+const CACHE_VERSION = "2026-02-07-07";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
+
+/* ===================== [UPLOAD DO REALIZACJI] ===================== */
+/**
+ * Endpoint:
+ *  - na Twoim serwerze: /puzzla/projekt-podkladek/api/upload.php
+ *  - REPO_BASE (wyliczany) powinien wskazywać: /puzzla/projekt-podkladek
+ */
+const UPLOAD_ENDPOINT = `${REPO_BASE}/api/upload.php`;
+
+/**
+ * Token musi być identyczny jak w api/upload.php (UPLOAD_TOKEN).
+ * Jeśli w PHP wkleiłeś inny — podmień tutaj.
+ */
+const UPLOAD_TOKEN = "4f9c7d2a8e1b5f63c0a9e72d41f8b6c39e5a0d7f1b2c8e4a6d9f3c1b7e0a2f5";
 
 /* ===================== [SEKCJA 2] DOM ===================== */
 const canvas = document.getElementById("canvas");
@@ -54,6 +68,8 @@ const btnZoomOut = document.getElementById("btnZoomOut");
 const btnZoomIn = document.getElementById("btnZoomIn");
 const btnFit = document.getElementById("btnFit");
 const btnCenter = document.getElementById("btnCenter");
+
+const btnSendToProduction = document.getElementById("btnSendToProduction");
 
 const statusBar = document.getElementById("statusBar");
 const toastContainer = document.getElementById("toastContainer");
@@ -894,6 +910,185 @@ btnDownloadPrint.addEventListener("click", () => {
 
   printImg.src = printUrl;
 });
+
+/* ===================== [SEKCJA 8B] WYŚLIJ DO REALIZACJI ===================== */
+let productionLocked = false;
+
+function setUiLocked(locked) {
+  productionLocked = locked;
+
+  const ids = [
+    "btnSquare", "btnCircle",
+    "btnUndo", "btnRedo",
+    "btnZoomOut", "btnZoomIn", "btnFit", "btnCenter",
+    "btnDownloadPreview", "btnDownloadPrint",
+    "btnSendToProduction"
+  ];
+
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = locked;
+  });
+
+  if (photoInput) photoInput.disabled = locked;
+  if (nickInput) nickInput.disabled = locked;
+
+  // zablokuj wybór szablonów
+  if (templateGrid) {
+    templateGrid.querySelectorAll("button").forEach((b) => (b.disabled = locked));
+    templateGrid.style.opacity = locked ? "0.6" : "1";
+    templateGrid.style.pointerEvents = locked ? "none" : "auto";
+  }
+
+  // wizualny sygnał na canvasie
+  if (canvas) canvas.style.opacity = locked ? "0.85" : "1";
+}
+
+/** renderuje PRINT do Blob (PNG) */
+function renderPrintPngBlob() {
+  return new Promise((resolve, reject) => {
+    if (!uploadedImg) return reject(new Error("Brak zdjęcia"));
+    if (!currentTemplate) return reject(new Error("Brak szablonu"));
+
+    const printUrl = withV(templateFolderUrl(currentTemplate.id) + "print.png");
+    const printImg = new Image();
+    printImg.crossOrigin = "anonymous";
+
+    printImg.onload = () => {
+      try {
+        clear();
+        drawPhotoTransformed(uploadedImg);
+        ctx.drawImage(printImg, 0, 0, CANVAS_PX, CANVAS_PX);
+
+        canvas.toBlob((blob) => {
+          // wróć do widoku edycji
+          redraw();
+
+          if (!blob) return reject(new Error("Nie udało się wygenerować PNG"));
+          resolve(blob);
+        }, "image/png");
+      } catch (e) {
+        redraw();
+        reject(e);
+      }
+    };
+
+    printImg.onerror = () => reject(new Error("Nie mogę wczytać print.png (do realizacji)"));
+    printImg.src = printUrl;
+  });
+}
+
+function buildProjectJson() {
+  const nick = (nickInput?.value || "").trim();
+  const dpi = getEffectiveDpi();
+  return JSON.stringify(
+    {
+      cache_version: CACHE_VERSION,
+      ts_iso: new Date().toISOString(),
+      nick,
+      shape,
+      template: currentTemplate ? { id: currentTemplate.id, name: currentTemplate.name || currentTemplate.id } : null,
+      transform: { coverScale, userScale, offsetX, offsetY },
+      dpi: dpi == null ? null : Math.round(dpi),
+      url: location.href
+    },
+    null,
+    2
+  );
+}
+
+function sanitizeOrderId(raw) {
+  return String(raw || "")
+    .trim()
+    .replace(/[^\w\-]+/g, "_")
+    .slice(0, 60);
+}
+
+async function uploadToServer(pngBlob, jsonText) {
+  const fd = new FormData();
+
+  const orderId = sanitizeOrderId(nickInput?.value || "");
+  if (orderId) fd.append("order_id", orderId);
+
+  fd.append("png", pngBlob, "projekt_PRINT.png");
+  fd.append("json", jsonText);
+
+  const res = await fetch(UPLOAD_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "X-Upload-Token": UPLOAD_TOKEN,
+    },
+    body: fd,
+  });
+
+  const txt = await res.text().catch(() => "");
+  if (!res.ok) {
+    throw new Error(`Upload HTTP ${res.status}: ${txt || "błąd"}`);
+  }
+
+  let data = null;
+  try {
+    data = txt ? JSON.parse(txt) : null;
+  } catch {
+    // jeśli serwer zwróci nie-JSON, pokażemy txt
+  }
+
+  if (data && data.ok === false) {
+    throw new Error(data.error || "Upload nieudany");
+  }
+
+  return data || { ok: true };
+}
+
+async function sendToProduction() {
+  if (productionLocked) return;
+
+  if (!uploadedImg) {
+    toast("Najpierw wgraj zdjęcie.");
+    return;
+  }
+  if (!currentTemplate) {
+    toast("Wybierz szablon, aby wysłać projekt do realizacji.");
+    return;
+  }
+
+  const first = window.confirm("Czy na pewno chcesz wysłać projekt do realizacji?");
+  if (!first) return;
+
+  const second = window.confirm(
+    "To ostatni krok.\n\nPo wysłaniu projekt trafia do produkcji i nie będzie można wprowadzić zmian.\n\nKontynuować?"
+  );
+  if (!second) return;
+
+  // blokujemy UI już na czas wysyłki
+  setUiLocked(true);
+  toast("Wysyłanie do realizacji…");
+
+  try {
+    const pngBlob = await renderPrintPngBlob();
+    const jsonText = buildProjectJson();
+    const resp = await uploadToServer(pngBlob, jsonText);
+
+    toast("Wysłano do realizacji ✅ Zmiana nie będzie możliwa — pliki przekazane do produkcji.");
+
+    // opcjonalnie pokaż link zwrotny (jeśli API zwraca url)
+    if (resp && resp.png_url) {
+      console.log("PNG:", resp.png_url);
+      if (resp.json_url) console.log("JSON:", resp.json_url);
+    }
+  } catch (err) {
+    console.error(err);
+    toast("Błąd wysyłania. Spróbuj ponownie albo skontaktuj się z obsługą.");
+    // odblokuj, żeby klient mógł poprawić i wysłać ponownie
+    setUiLocked(false);
+  }
+}
+
+if (btnSendToProduction) {
+  btnSendToProduction.addEventListener("click", () => {
+    sendToProduction();
+  });
+}
 
 /* ===================== [SEKCJA 9] START ===================== */
 (async function init() {
