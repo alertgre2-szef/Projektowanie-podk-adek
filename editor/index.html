@@ -11,7 +11,10 @@
   <div class="app">
     <div class="header">
       <div class="title">
-        <div class="h1">Edytor podkładki</div>
+        <div class="h1">
+          Edytor podkładki
+          <span id="appVersion" style="font-size:0.6em;color:#666;"></span>
+        </div>
         <div class="sub">Projekt 10×10 cm (spad). Linia przerywana: cięcie 9×9 cm.</div>
       </div>
 
@@ -27,13 +30,13 @@
 
           <canvas id="canvas" width="1181" height="1181"></canvas>
 
-          <!-- NOWA warstwa przygaszenia spadu -->
+          <!-- warstwa przygaszenia spadu -->
           <div class="shadeLayer" id="shadeLayer"></div>
 
-          <!-- Maski/ramki -->
+          <!-- maski -->
           <div class="clipLayer" id="clipLayer"></div>
 
-          <!-- Linia cięcia -->
+          <!-- linia cięcia -->
           <div class="cutGuide" id="cutGuide"></div>
 
         </div>
@@ -71,5 +74,15 @@
   </div>
 
   <script src="./editor.js?v=2026-02-06-03" defer></script>
+
+  <!-- wyświetlanie wersji -->
+  <script>
+    window.addEventListener("DOMContentLoaded", () => {
+      const el = document.getElementById("appVersion");
+      if (typeof CACHE_VERSION !== "undefined") {
+        el.textContent = " • v" + CACHE_VERSION;
+      }
+    });
+  </script>
 </body>
 </html>
