@@ -60,22 +60,25 @@ body {
    SPADY / CIĘCIE — wizualizacja
    - przygaszamy wszystko poza 9×9 (czyli spad)
    - środek 9×9 zostaje normalny
+   - w trybie OKRĄG: przygaszenie też jest okrągłe (clip-path)
    ========================================================= */
 
-/* Przygaszenie spadu (poza obszarem cięcia 9×9) */
-.preview::after {
-  content: "";
+/* NOWA warstwa przygaszenia spadu (poza obszarem cięcia 9×9) */
+.shadeLayer {
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 12;
 
-  /* 4 warstwy przygaszenia: góra / dół / lewo / prawo */
+  /* 4 pasy przygaszenia: góra / dół / lewo / prawo */
   background:
     linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) top / 100% 5% no-repeat,
     linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) bottom / 100% 5% no-repeat,
     linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) left / 5% 90% no-repeat,
     linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) right / 5% 90% no-repeat;
+
+  /* Domyślnie: kwadrat z R=5mm (ustawimy to też JS-em dla zgodności) */
+  clip-path: inset(0 round 0px);
 }
 
 /* Warstwa klipu (kształt) */
