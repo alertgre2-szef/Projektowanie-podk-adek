@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Edytor podkładki</title>
 
-  <link rel="stylesheet" href="./style.css?v=2026-02-07-07" />
+  <link rel="stylesheet" href="./style.css?v=2026-02-07-08" />
 </head>
 <body>
   <div class="app">
@@ -107,7 +107,37 @@
 
   <div class="toastContainer" id="toastContainer"></div>
 
-  <script src="./editor.js?v=2026-02-07-07" defer></script>
+  <!-- PEŁNOEKRANOWY KOMUNIKAT KOŃCOWY -->
+  <div
+    id="finalOverlay"
+    style="
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(255,255,255,0.98);
+      text-align: center;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    "
+    aria-live="polite"
+  >
+    <div style="max-width: 720px;">
+      <div id="finalOverlayTitle" style="font-size: 28px; font-weight: 800; line-height: 1.2;">
+        Wysłano do realizacji ✅
+      </div>
+      <div id="finalOverlayMsg" style="margin-top: 12px; font-size: 18px; line-height: 1.5;">
+        Projekt został przekazany do produkcji. Zmiana nie będzie możliwa.
+      </div>
+      <div style="margin-top: 14px; font-size: 14px; color: #555;">
+        Możesz teraz zamknąć tę stronę.
+      </div>
+    </div>
+  </div>
+
+  <script src="./editor.js?v=2026-02-07-08" defer></script>
 
   <!-- wyświetlanie wersji -->
   <script>
