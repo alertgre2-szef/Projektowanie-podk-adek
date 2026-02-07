@@ -86,8 +86,7 @@ body {
    SPADY / CIĘCIE / SAFE AREA — wizualizacja
    - 10×10 cm = całe pole
    - cięcie: 9×9 cm => 5% marginesu
-   - safe area: 5 mm od krawędzi => 0.5 cm => 5% marginesu
-     (czyli tak samo jak cięcie przy Twoich założeniach 10 cm boku)
+   - safe area: 5 mm od cięcia do środka => 10% marginesu (8×8 cm)
    ========================================================= */
 
 /* warstwa przygaszenia spadu */
@@ -127,19 +126,25 @@ body {
   z-index: 15;
 }
 
-/* SAFE AREA — 5 mm od krawędzi (czyli 5% przy 10×10 cm) */
+/* SAFE AREA — 5 mm od linii cięcia do środka (czyli 10% marginesu od krawędzi) */
 .safeGuide {
   position: absolute;
   left: 10%;
   top: 10%;
   width: 80%;
   height: 80%;
-  border: 2px solid rgba(255,255,255,0.65);
-  outline: 1px solid rgba(0,0,0,0.25);
-  border-radius: 10px;
   pointer-events: none;
   z-index: 16;
-  mix-blend-mode: overlay;
+
+  /* czytelne zawsze: dashed + cień */
+  border: 2px dashed rgba(255,255,255,0.95);
+  outline: 1px dashed rgba(0,0,0,0.65);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.08);
+
+  border-radius: 10px;
+
+  /* lekkie przygaszenie tła, żeby było widoczne na białych zdjęciach */
+  background: rgba(0,0,0,0.04);
 }
 
 /* Panel */
