@@ -72,15 +72,17 @@ function setShadeSquare() {
 }
 
 function setShadeCircle() {
-  // UWAGA: okrąg ma być większy niż 9×9 (żeby wyglądał naturalnie)
-  // 0.95 => promień 47.5% (zamiast 45%)
-  const CIRCLE_CUT_RATIO = 0.95;
-  const r = 50 * CIRCLE_CUT_RATIO;
-  const rStr = `${r}%`;
+  // Próg przyciemnienia zgodny z tym, co ustawiasz w DevTools:
+  // rgba(0,0,0,0) do 63%, od 63% przyciemnienie do 100%.
+  const CIRCLE_SHADE_STOP_PCT = 63;
 
   shadeLayer.style.clipPath = "";
   shadeLayer.style.background =
-    `radial-gradient(circle at 63% 63%, rgba(0,0,0,0) 0 ${rStr}, rgba(0,0,0,0.50) ${rStr} 100%)`;
+    `radial-gradient(circle at 50% 50%, ` +
+    `rgba(0,0,0,0) 0%, ` +
+    `rgba(0,0,0,0) ${CIRCLE_SHADE_STOP_PCT}%, ` +
+    `rgba(0,0,0,0.50) ${CIRCLE_SHADE_STOP_PCT}%, ` +
+    `rgba(0,0,0,0.50) 100%)`;
 }
 
 function setShape(next) {
