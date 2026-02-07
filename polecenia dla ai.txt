@@ -1,46 +1,77 @@
-KOMENDA STARTOWA DO NOWEGO CHATA (wklej jutro jako 1. wiadomość)
+1) Uruchomienie edytora w nowym oknie (najprościej)
 
-Projekt: Webowy edytor projektowania podkładek (GitHub Pages)
-Repo/ścieżka: /Projektowanie-podk-adek
-Edytor: editor/index.html, editor/editor.js, editor/style.css
-Szablony: assets/templates/index.json + katalogi assets/templates/coasters/<id>/thumb.webp|edit.png|print.png
+Masz docelowy adres:
+https://puzzla.nazwa.pl/puzzla/projekt-podkladek/
 
-Wymagania funkcjonalne:
+Żeby otwierać edytor w nowej karcie/oknie, linkuj bezpośrednio do:
+https://puzzla.nazwa.pl/puzzla/projekt-podkladek/editor/
 
-pole robocze 10×10 cm (1181×1181 px), linia cięcia 9×9 (90%)
+Jeśli wstawiasz to jako link (np. Allegro / opis / strona)
 
-wybór kształtu: kwadrat (R=5mm) / okrąg
+Użyj klasycznie:
 
-miniatury szablonów + „Brak”
+<a href="https://puzzla.nazwa.pl/puzzla/projekt-podkladek/editor/" target="_blank" rel="noopener noreferrer">
+  Otwórz edytor podkładek
+</a>
 
-eksport PREVIEW (canvas)
 
-eksport PRINT = zdjęcie + print.png
+target="_blank" = nowe okno/karta
 
-Aktualny stan (działa):
+rel="noopener noreferrer" = bezpieczniej (standard)
 
-CSS: przygaszenie spadu poza 9×9
+Jeśli otwierasz z JS (np. po kliknięciu przycisku)
+window.open("https://puzzla.nazwa.pl/puzzla/projekt-podkladek/editor/", "_blank", "noopener,noreferrer");
 
-JS: cache-busting dla assetów szablonów (thumb/edit/print)
+2) Wariant “ładny” – startowa strona z przyciskiem “Otwórz edytor”
 
-JS: „Brak” w siatce i start bez domyślnego szablonu
+Jeśli chcesz, żeby w katalogu /projekt-podkladek/ był prosty index.html, który kieruje do edytora (np. dla porządku):
 
-problem z cache rozwiązujemy wersjonowaniem ?v=...
+/puzzla/projekt-podkladek/index.html:
 
-Zasady pracy (obowiązkowe):
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Projektowanie podkładek</title>
+</head>
+<body style="font-family:system-ui; padding:24px;">
+  <h1>Projektowanie podkładek</h1>
+  <p>Otwórz edytor w nowej karcie:</p>
+  <p>
+    <a href="./editor/" target="_blank" rel="noopener noreferrer"
+       style="display:inline-block;padding:12px 16px;background:#111;color:#fff;border-radius:10px;text-decoration:none;">
+      Otwórz edytor
+    </a>
+  </p>
+</body>
+</html>
 
-Jeśli masz jakiekolwiek wątpliwości co do wersji pliku → prosisz o pełny plik.
+3) Brak nicku = “noname” (wiemy) — co dziś możesz zrobić bez zmian w kodzie
 
-Ty zawsze odsyłasz pełny plik do podmiany 1:1 (nie łatki fragmentami).
+Na teraz, jeśli klient nie wpisze nicku, upload będzie miał losową nazwę (bo backend i tak dodaje timestamp+losowość). To nie zepsuje produkcji, ale utrudnia przypisanie do zamówienia.
 
-Nie zgadujesz ścieżek/selektorów — opierasz się na wklejonych plikach.
+Doraźnie (operacyjnie):
 
-Odpowiedzi krótko: cel zmiany + plik do podmiany.
+w instrukcji dla klienta dopisz:
+„W polu Podpis / nick wpisz proszę numer zamówienia.”
 
-Jeśli poproszę o debug: wyślę screen z konsoli Chrome.
+4) Co zrobimy jako następny krok (w kodzie)
 
-Dodatkowo (żeby było turbo skutecznie): na końcu tej komendy jutro dopisz jeszcze:
+Dwie sensowne opcje walidacji:
 
-co dokładnie chcesz zrobić jako następny krok (1 zdanie).
+Wymagaj nicku przy wysyłce (najprościej)
 
-I tyle — wtedy od razu ruszamy bez “wprowadzania” i bez zgadywania.
+bez nicku: komunikat i stop
+
+Automatycznie podstaw nick (np. “zamówienie_123” lub “klient”)
+
+ale Ty już zauważyłeś, że “noname” jest średnie, więc raczej opcja 1.
+
+Jak wrócimy do tematu, wkleisz aktualny editor/editor.js i zrobię to tak, żeby:
+
+bez nicku nie dało się wysłać do produkcji,
+
+a pole dostało “czerwony” hint + toast.
+
+Na dziś tyle 👍
