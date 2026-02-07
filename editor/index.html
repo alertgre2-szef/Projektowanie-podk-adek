@@ -5,8 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Edytor podkładki</title>
 
-  <!-- Zmieniaj v=... gdy przeglądarka trzyma stare style -->
-  <link rel="stylesheet" href="./style.css?v=2026-02-06-02" />
+  <link rel="stylesheet" href="./style.css?v=2026-02-06-03" />
 </head>
 <body>
   <div class="app">
@@ -25,17 +24,22 @@
     <div class="main">
       <div class="previewWrap">
         <div class="preview" id="preview">
+
           <canvas id="canvas" width="1181" height="1181"></canvas>
 
-          <!-- Maski/ramki na podgląd -->
+          <!-- NOWA warstwa przygaszenia spadu -->
+          <div class="shadeLayer" id="shadeLayer"></div>
+
+          <!-- Maski/ramki -->
           <div class="clipLayer" id="clipLayer"></div>
 
-          <!-- Linia cięcia 9×9 -->
+          <!-- Linia cięcia -->
           <div class="cutGuide" id="cutGuide"></div>
+
         </div>
 
         <div class="hint">
-          Tip: Na telefonie możesz powiększać/zmniejszać stronę gestem. Docelowo dodamy pinch-zoom w samym podglądzie.
+          Tip: Na telefonie możesz powiększać/zmniejszać stronę gestem.
         </div>
       </div>
 
@@ -55,24 +59,17 @@
         <div class="card">
           <div class="cardTitle">3) Podpis / nick</div>
           <input id="nickInput" type="text" placeholder="np. Kowalski / nick / nr zamówienia" />
-          <div class="smallText">
-            Na razie zapis będzie do folderu wg tego podpisu (automatyzację zrobimy później).
-          </div>
         </div>
 
         <div class="card">
-          <div class="cardTitle">Eksport (tymczasowo)</div>
-          <button id="btnDownloadPreview" class="btn" type="button">Pobierz podgląd PNG</button>
-          <button id="btnDownloadPrint" class="btn secondary" type="button">Pobierz plik do druku (print.png)</button>
-          <div class="smallText">
-            „Print” to gotowa ramka produkcyjna z katalogu szablonu. Docelowo wygenerujemy pełny plik do druku (zdjęcie + tekst + szablon).
-          </div>
+          <div class="cardTitle">Eksport</div>
+          <button id="btnDownloadPreview" class="btn">Podgląd PNG</button>
+          <button id="btnDownloadPrint" class="btn secondary">Druk PNG</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- WAŻNE: moduł, żeby nie wywalało się na 'export' -->
- <script src="./editor.js?v=2026-02-06-02" defer></script>
+  <script src="./editor.js?v=2026-02-06-03" defer></script>
 </body>
 </html>
