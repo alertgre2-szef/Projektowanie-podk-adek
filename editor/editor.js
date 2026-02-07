@@ -20,7 +20,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-07-04";
+const CACHE_VERSION = "2026-02-07-05";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -321,34 +321,49 @@ function setShadeCircle() {
     `rgba(0,0,0,0.50) 100%)`;
 }
 
-/* Żółty ring/pasy: między 5% (cięcie) a 10% (safe) */
-function setDangerSquare() {
-  if (!dangerLayer) return;
-  const c = "rgba(255, 208, 0, 0.22)"; // delikatny żółty
-  dangerLayer.style.background =
-    `linear-gradient(${c}, ${c}) 0 5% / 100% 5% no-repeat,` +     /* top band */
-    `linear-gradient(${c}, ${c}) 0 90% / 100% 5% no-repeat,` +    /* bottom band */
-    `linear-gradient(${c}, ${c}) 5% 10% / 5% 80% no-repeat,` +    /* left band */
-    `linear-gradient(${c}, ${c}) 90% 10% / 5% 80% no-repeat`;     /* right band */
-}
-
-function setDangerCircle() {
-  if (!dangerLayer) return;
-  const c = "rgba(255, 208, 0, 0.22)";
-  // cut circle radius ~45% (bo 90% pola), safe radius ~40% (bo 80% pola)
-  dangerLayer.style.background =
-    `radial-gradient(circle at 50% 50%, ` +
-    `rgba(255,255,255,0) 0%, ` +
-    `rgba(255,255,255,0) 40%, ` +
-    `${c} 40%, ` +
-    `${c} 45%, ` +
-    `rgba(255,255,255,0) 45%, ` +
-    `rgba(255,255,255,0) 100%)`;
-}
-
 function setSafeGuideForShape() {
   if (!safeGuide) return;
   safeGuide.style.borderRadius = shape === "circle" ? "999px" : "10px";
+}
+
+/**
+ * DANGER (żółta strefa) — rysujemy pewnie w px:
+ * - outer: 90% (cut) => inset = 5% = 0.05 * CANVAS_PX
+ * - thickness: 5% => 0.05 * CANVAS_PX
+ * - inner = 80% (safe)
+ */
+function renderDangerOverlay() {
+  if (!dangerLayer) return;
+
+  // wyczyść poprzedni wariant (gradienty/procenty) i dzieci
+  dangerLayer.style.background = "";
+  dangerLayer.innerHTML = "";
+
+  const insetPx = Math.round(CANVAS_PX * 0.05);      // 59px
+  const thickPx = Math.round(CANVAS_PX * 0.05);      // 59px
+
+  const ring = document.createElement("div");
+  ring.style.position = "absolute";
+  ring.style.left = `${insetPx}px`;
+  ring.style.top = `${insetPx}px`;
+  ring.style.width = `${CANVAS_PX - insetPx * 2}px`;
+  ring.style.height = `${CANVAS_PX - insetPx * 2}px`;
+  ring.style.boxSizing = "border-box";
+  ring.style.pointerEvents = "none";
+  ring.style.border = `${thickPx}px solid rgba(255, 208, 0, 0.22)`;
+  ring.style.zIndex = "14";
+  ring.style.mixBlendMode = "multiply";
+
+  if (shape === "circle") {
+    ring.style.borderRadius = "9999px";
+  } else {
+    // chcemy żeby wewnętrzny narożnik mniej więcej trzymał się 10px jak safe/cutGuide,
+    // więc outer radius = innerRadius + grubość
+    const innerR = 10;
+    ring.style.borderRadius = `${innerR + thickPx}px`;
+  }
+
+  dangerLayer.appendChild(ring);
 }
 
 function setShape(next, opts = {}) {
@@ -361,16 +376,16 @@ function setShape(next, opts = {}) {
     clipLayer.style.clipPath = "circle(50% at 50% 50%)";
     cutGuide.style.borderRadius = "999px";
     setShadeCircle();
-    setDangerCircle();
   } else {
     const rPx = Math.round(CANVAS_PX * 0.05);
     clipLayer.style.clipPath = `inset(0 round ${rPx}px)`;
     cutGuide.style.borderRadius = "10px";
     setShadeSquare();
-    setDangerSquare();
   }
 
   setSafeGuideForShape();
+  renderDangerOverlay();
+
   redraw();
   updateStatusBar();
 
