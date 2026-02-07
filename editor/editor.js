@@ -2,48 +2,19 @@
  * ============================================================
  * Edytor podkładek — wersja prosta
  * ============================================================
- * Źródło listy szablonów: assets/templates/index.json
- * Struktura:
- * {
- *   "coasters": [
- *     { "id": "ramka_01", "title": "Ramka 01" },
- *     ...
- *   ]
- * }
- *
- * Pliki szablonu:
- * assets/templates/coasters/<id>/thumb.webp
- * assets/templates/coasters/<id>/edit.png
- * assets/templates/coasters/<id>/print.png
- *
- * Funkcje:
- * - start bez domyślnego szablonu
- * - „Brak” w siatce (klik = wyłącza szablon)
- * - eksport PRINT = zdjęcie + print.png
- * - cache-busting dla assetów szablonów
- * ============================================================
  */
 
 /* ===================== [SEKCJA 1] STAŁE ===================== */
-const CANVAS_PX = 1181; // 10cm @ 300dpi ≈ 1181px
-const CUT_RATIO = 0.90; // 9/10 = 0.9 (na razie niewykorzystane w rysowaniu)
+const CANVAS_PX = 1181;
+const CUT_RATIO = 0.90;
 
-/**
- * Baza repo liczona automatycznie:
- * /Projektowanie-podk-adek/editor/index.html -> /Projektowanie-podk-adek
- */
 const REPO_BASE = (() => {
   const p = location.pathname;
   const i = p.indexOf("/editor/");
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-/**
- * Cache-busting:
- * Zmień wartość, gdy podmieniasz miniatury/overlaye/printy,
- * a przeglądarka nadal pokazuje stare pliki.
- */
-const CACHE_VERSION = "2026-02-06-02";
+const CACHE_VERSION = "2026-02-06-03";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -59,6 +30,7 @@ const btnSquare = document.getElementById("btnSquare");
 const btnCircle = document.getElementById("btnCircle");
 
 const clipLayer = document.getElementById("clipLayer");
+const shadeLayer = document.getElementById("shadeLayer");
 const cutGuide = document.getElementById("cutGuide");
 
 const templateGrid = document.getElementById("templateGrid");
@@ -67,10 +39,10 @@ const btnDownloadPreview = document.getElementById("btnDownloadPreview");
 const btnDownloadPrint = document.getElementById("btnDownloadPrint");
 
 /* ===================== [SEKCJA 3] STAN ===================== */
-let shape = "square";              // square | circle
-let uploadedImg = null;            // Image()
-let currentTemplate = null;        // { id, name } lub null
-let templateEditImg = null;        // Image() — overlay do podglądu (edit.png)
+let shape = "square";
+let uploadedImg = null;
+let currentTemplate = null;
+let templateEditImg = null;
 
 /* ===================== [SEKCJA 4] KSZTAŁT ===================== */
 function setShape(next) {
@@ -81,10 +53,14 @@ function setShape(next) {
 
   if (shape === "circle") {
     clipLayer.style.clipPath = "circle(50% at 50% 50%)";
+    shadeLayer.style.clipPath = "circle(50% at 50% 50%)";
     cutGuide.style.borderRadius = "999px";
   } else {
-    const rPx = Math.round(CANVAS_PX * 0.05); // R=5mm -> ~59px
-    clipLayer.style.clipPath = `inset(0 round ${rPx}px)`;
+    const rPx = Math.round(CANVAS_PX * 0.05);
+    const inset = `inset(0 round ${rPx}px)`;
+
+    clipLayer.style.clipPath = inset;
+    shadeLayer.style.clipPath = inset;
     cutGuide.style.borderRadius = "10px";
   }
 
@@ -130,11 +106,13 @@ photoInput.addEventListener("change", (e) => {
 
   const url = URL.createObjectURL(file);
   const img = new Image();
+
   img.onload = () => {
     uploadedImg = img;
     redraw();
     URL.revokeObjectURL(url);
   };
+
   img.src = url;
 });
 
@@ -142,7 +120,7 @@ photoInput.addEventListener("change", (e) => {
 async function loadTemplates() {
   const url = `${REPO_BASE}/assets/templates/index.json`;
   const res = await fetch(withV(url), { cache: "no-store" });
-  if (!res.ok) throw new Error(`Nie mogę wczytać: ${url} (HTTP ${res.status})`);
+  if (!res.ok) throw new Error(`Nie mogę wczytać: ${url}`);
 
   const data = await res.json();
   const list = Array.isArray(data?.coasters) ? data.coasters : [];
@@ -165,26 +143,24 @@ function renderTemplateGrid(templates) {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "templateItem";
-    item.title = t.name || t.id;
 
     if (t.id === "__none__") {
-      item.classList.add("templateItem--none");
       item.textContent = "Brak";
-      item.addEventListener("click", () => clearTemplateSelection());
+      item.classList.add("templateItem--none");
+      item.onclick = clearTemplateSelection;
       templateGrid.appendChild(item);
       return;
     }
 
     const img = document.createElement("img");
-    img.alt = t.name || t.id;
-    img.loading = "lazy";
     img.src = withV(templateFolderUrl(t.id) + "thumb.webp");
+    img.loading = "lazy";
     item.appendChild(img);
 
-    item.addEventListener("click", async () => {
+    item.onclick = async () => {
       currentTemplate = t;
       await applyTemplate(t);
-    });
+    };
 
     templateGrid.appendChild(item);
   });
@@ -194,13 +170,12 @@ async function applyTemplate(t) {
   const url = withV(templateFolderUrl(t.id) + "edit.png");
   const img = new Image();
   img.crossOrigin = "anonymous";
+
   img.onload = () => {
     templateEditImg = img;
     redraw();
   };
-  img.onerror = () => {
-    console.error("Nie mogę wczytać:", url);
-  };
+
   img.src = url;
 }
 
@@ -213,46 +188,32 @@ function clearTemplateSelection() {
 /* ===================== [SEKCJA 8] EKSPORT ===================== */
 btnDownloadPreview.addEventListener("click", () => {
   const a = document.createElement("a");
-  const nick = (nickInput.value || "projekt").trim().replace(/[^\w\-]+/g, "_");
+  const nick = (nickInput.value || "projekt").replace(/[^\w\-]+/g, "_");
   a.download = `${nick}_preview.png`;
-  a.href = canvas.toDataURL("image/png");
+  a.href = canvas.toDataURL();
   a.click();
 });
 
 btnDownloadPrint.addEventListener("click", () => {
-  if (!uploadedImg) {
-    alert("Najpierw wgraj zdjęcie.");
-    return;
-  }
-  if (!currentTemplate) {
-    alert("Najpierw wybierz szablon, aby wygenerować plik do druku.");
-    return;
-  }
+  if (!uploadedImg || !currentTemplate) return;
 
-  const printUrl = withV(templateFolderUrl(currentTemplate.id) + "print.png");
-  const printImg = new Image();
-  printImg.crossOrigin = "anonymous";
+  const url = withV(templateFolderUrl(currentTemplate.id) + "print.png");
+  const img = new Image();
 
-  printImg.onload = () => {
+  img.onload = () => {
     clear();
     drawPhotoCover(uploadedImg);
-    ctx.drawImage(printImg, 0, 0, CANVAS_PX, CANVAS_PX);
+    ctx.drawImage(img, 0, 0, CANVAS_PX, CANVAS_PX);
 
     const a = document.createElement("a");
-    const nick = (nickInput.value || "projekt").trim().replace(/[^\w\-]+/g, "_");
-    a.download = `${nick}_${currentTemplate.id}_PRINT.png`;
-    a.href = canvas.toDataURL("image/png");
+    a.download = "print.png";
+    a.href = canvas.toDataURL();
     a.click();
 
     redraw();
   };
 
-  printImg.onerror = () => {
-    alert("Nie mogę wczytać print.png dla wybranego szablonu.");
-    console.error("Nie mogę wczytać:", printUrl);
-  };
-
-  printImg.src = printUrl;
+  img.src = url;
 });
 
 /* ===================== [SEKCJA 9] START ===================== */
@@ -260,13 +221,8 @@ btnDownloadPrint.addEventListener("click", () => {
   setShape("square");
   clearTemplateSelection();
 
-  try {
-    const templates = await loadTemplates();
-    renderTemplateGrid(templates);
-  } catch (err) {
-    console.error(err);
-    templateGrid.innerHTML = `<div class="smallText">Nie udało się wczytać szablonów.</div>`;
-  }
+  const templates = await loadTemplates();
+  renderTemplateGrid(templates);
 
   redraw();
 })();
