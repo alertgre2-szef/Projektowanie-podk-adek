@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-06-04";
+const CACHE_VERSION = "2026-02-06-05";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -46,8 +46,7 @@ let templateEditImg = null;
 
 /* ===================== [SEKCJA 4] KSZTAŁT + SPADY ===================== */
 function setShadeSquare() {
-  // Kwadrat: przygaszenie spadu (poza 9×9) jako 4 pasy
-  shadeLayer.style.clipPath = ""; // nie potrzebujemy clip-path (to są pasy)
+  shadeLayer.style.clipPath = "";
   shadeLayer.style.background =
     "linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) top / 100% 5% no-repeat," +
     "linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) bottom / 100% 5% no-repeat," +
@@ -56,13 +55,16 @@ function setShadeSquare() {
 }
 
 function setShadeCircle() {
-  // Okrąg: przygaszamy WSZYSTKO poza okręgiem (dziura w środku)
-  // 90% średnicy => promień = 45% pełnego pola
-  shadeLayer.style.clipPath = ""; // nie używamy clip-path, robimy "dziurę" gradientem
+  // DZIURA = obszar cięcia w okręgu
+  // promień w % = 50% * CUT_RATIO (dla 0.90 => 45%)
+  // Jeśli chcesz większy okrąg, zmień tylko CIRCLE_CUT_RATIO poniżej.
+  const CIRCLE_CUT_RATIO = CUT_RATIO; // <- jedyne miejsce do strojenia
+  const r = 50 * CIRCLE_CUT_RATIO;     // promień w %
+  const rStr = `${r}%`;
+
+  shadeLayer.style.clipPath = "";
   shadeLayer.style.background =
-    "radial-gradient(circle at 50% 50%," +
-    "rgba(0,0,0,0) 0 45%," +
-    "rgba(0,0,0,0.50) 45% 100%)";
+    `radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 0 ${rStr}, rgba(0,0,0,0.50) ${rStr} 100%)`;
 }
 
 function setShape(next) {
