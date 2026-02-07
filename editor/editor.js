@@ -12,7 +12,7 @@ const CUT_RATIO = 0.90;
 const PRINT_DPI = 300;
 
 // Nowe progi jakości wg Twojej propozycji:
-const DPI_WEAK_MAX = 50;     // 0–50  = słaba
+const DPI_WEAK_MAX = 70;     // 0–70  = słaba
 const DPI_MED_MAX = 120;     // 50–120 = średnia
 const DPI_GOOD_MAX = 200;    // 120–200 = dobra
 // 200+ = super
