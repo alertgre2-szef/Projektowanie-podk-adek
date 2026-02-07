@@ -11,10 +11,10 @@ const CUT_RATIO = 0.90;
 // Założenie produkcyjne: 1181 px = 10 cm @ 300 DPI
 const PRINT_DPI = 300;
 
-// Nowe progi jakości wg Twojej propozycji:
-const DPI_WEAK_MAX = 70;     // 0–70  = słaba
-const DPI_MED_MAX = 120;     // 50–120 = średnia
-const DPI_GOOD_MAX = 200;    // 120–200 = dobra
+// Nowe progi jakości (Ty już zmieniałeś u siebie — zostawiam jak było u mnie)
+const DPI_WEAK_MAX = 50;     // 0–50  = słaba
+const DPI_MED_MAX = 100;     // 50–100 = średnia
+const DPI_GOOD_MAX = 200;    // 100–200 = dobra
 // 200+ = super
 
 const REPO_BASE = (() => {
@@ -23,7 +23,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-07-02";
+const CACHE_VERSION = "2026-02-07-03";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -68,12 +68,6 @@ let uploadedImg = null;
 let currentTemplate = null;
 let templateEditImg = null;
 
-/**
- * Transform zdjęcia:
- * - coverScale: automatyczny “cover” na start
- * - userScale: zoom użytkownika
- * - offsetX/Y: przesunięcie w px
- */
 let coverScale = 1;
 let userScale = 1;
 let offsetX = 0;
@@ -83,15 +77,47 @@ const MIN_USER_SCALE = 1.0;
 const MAX_USER_SCALE = 6.0;
 
 /* ===================== [SEKCJA 3B] TOAST + STATUS + HISTORIA + JAKOŚĆ ===================== */
-function toast(msg, ms = 2400) {
+
+// DOMYŚLNIE 20 sekund
+const TOAST_DEFAULT_MS = 20000;
+
+function toast(msg, ms = TOAST_DEFAULT_MS) {
   if (!toastContainer) return;
+
   const el = document.createElement("div");
   el.className = "toast";
-  el.textContent = msg;
+
+  // treść
+  const text = document.createElement("div");
+  text.className = "toastText";
+  text.textContent = msg;
+  el.appendChild(text);
+
+  // przycisk zamknięcia
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "toastClose";
+  close.setAttribute("aria-label", "Zamknij");
+  close.textContent = "×";
+  el.appendChild(close);
+
+  // obsługa zamykania
+  let timer = 0;
+  const removeToast = () => {
+    if (timer) window.clearTimeout(timer);
+    el.remove();
+  };
+
+  close.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    removeToast();
+  });
+
   toastContainer.appendChild(el);
 
-  window.setTimeout(() => {
-    el.remove();
+  timer = window.setTimeout(() => {
+    removeToast();
   }, ms);
 }
 
@@ -104,12 +130,10 @@ function templateName() {
   return currentTemplate?.name || currentTemplate?.id || "—";
 }
 
-/* --- JAKOŚĆ / DPI --- */
 function getEffectiveDpi() {
   if (!uploadedImg) return null;
   const s = coverScale * userScale;
   if (!s || s <= 0) return null;
-  // gdy s>1 obraz jest powiększany => DPI spada
   return PRINT_DPI / s;
 }
 
@@ -124,11 +148,6 @@ function qualityLabelFromDpi(dpi) {
 function applyStatusBarQualityStyle(dpi) {
   if (!statusBar) return;
 
-  // Delikatne, “czytelne” tła (żeby nie przeszkadzały w czytaniu)
-  // Słaba: lekko czerwone
-  // Średnia: lekko żółte
-  // Dobra: lekko zielone
-  // Super: trochę mocniejsza zieleń (ale nadal pastel)
   let bg = "#f8fafc";
   let border = "#e5e7eb";
 
@@ -153,12 +172,13 @@ function applyStatusBarQualityStyle(dpi) {
   statusBar.style.borderColor = border;
 }
 
-let qualityWarnLevel = 0; // 0=brak, 1=warn, 2=strong (żeby nie spamować)
+let qualityWarnLevel = 0; // 0=brak, 1=warn, 2=strong
+
 function levelFromDpi(dpi) {
   if (dpi == null) return 0;
-  if (dpi < DPI_WEAK_MAX) return 2;      // mocne
-  if (dpi < DPI_MED_MAX) return 1;       // ostrzeżenie
-  return 0;                              // OK (dobra/super)
+  if (dpi < DPI_WEAK_MAX) return 2;
+  if (dpi < DPI_MED_MAX) return 1;
+  return 0;
 }
 
 function maybeWarnQuality(force = false) {
@@ -176,12 +196,12 @@ function maybeWarnQuality(force = false) {
       `Uwaga: jakość może być słaba (ok. ${Math.round(dpi)} DPI). ` +
       `Najlepiej wygląda zdjęcie z oryginału (np. prosto z aparatu/telefonu). ` +
       `Pamiętaj, że komunikatory (np. WhatsApp/Messenger) często pomniejszają i kompresują zdjęcia.`
-    , 5200);
+    );
   } else if (level === 1) {
     toast(
       `Uwaga: zdjęcie ma średnią jakość (ok. ${Math.round(dpi)} DPI). ` +
       `Jeśli możesz, użyj oryginalnego pliku – komunikatory często pogarszają jakość przez kompresję.`
-    , 4800);
+    );
   }
 }
 
@@ -707,7 +727,7 @@ window.addEventListener("keydown", (e) => {
   if ((mod && e.shiftKey && e.key.toLowerCase() === "z") || (mod && e.key.toLowerCase() === "y")) {
     e.preventDefault();
     redo();
-   	return;
+    return;
   }
 });
 
