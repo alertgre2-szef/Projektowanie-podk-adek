@@ -24,7 +24,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-08-07";
+const CACHE_VERSION = "2026-02-08-08";
 window.CACHE_VERSION = CACHE_VERSION; // dla index.html (wyświetlanie wersji)
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
@@ -327,10 +327,10 @@ async function redo() {
 function setShadeSquare() {
   shadeLayer.style.clipPath = "";
   shadeLayer.style.background =
-    "linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) top / 100% 5% no-repeat," +
-    "linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) bottom / 100% 5% no-repeat," +
-    "linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) left / 5% 90% no-repeat," +
-    "linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) right / 5% 90% no-repeat";
+    "linear-gradient(rgba(0,0,0,0.78), rgba(0,0,0,0.78)) top / 100% 5% no-repeat," +
+    "linear-gradient(rgba(0,0,0,0.78), rgba(0,0,0,0.78)) bottom / 100% 5% no-repeat," +
+    "linear-gradient(rgba(0,0,0,0.78), rgba(0,0,0,0.78)) left / 5% 90% no-repeat," +
+    "linear-gradient(rgba(0,0,0,0.78), rgba(0,0,0,0.78)) right / 5% 90% no-repeat";
 }
 
 function setShadeCircle() {
@@ -341,8 +341,8 @@ function setShadeCircle() {
     `radial-gradient(circle at 50% 50%, ` +
     `rgba(0,0,0,0) 0%, ` +
     `rgba(0,0,0,0) ${CIRCLE_SHADE_STOP_PCT}%, ` +
-    `rgba(0,0,0,0.50) ${CIRCLE_SHADE_STOP_PCT}%, ` +
-    `rgba(0,0,0,0.50) 100%)`;
+    `rgba(0,0,0,0.78) ${CIRCLE_SHADE_STOP_PCT}%, ` +
+    `rgba(0,0,0,0.78) 100%)`;
 }
 
 function setSafeGuideForShape() {
