@@ -79,7 +79,7 @@ body {
   aspect-ratio: 1;
   position: relative;
   border-radius: 14px;
-  background: #fafafa;
+  background: #000;
 
   /* ZMIANA: bez przerywanej ramki (mniej szumu) */
   border: 1px solid #e5e7eb;
