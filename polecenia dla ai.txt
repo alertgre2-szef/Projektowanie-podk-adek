@@ -1,77 +1,35 @@
-1) Uruchomienie edytora w nowym oknie (najprościej)
+PLAN NA JUTRO — EDYTOR PODKŁADEK
 
-Masz docelowy adres:
-https://puzzla.nazwa.pl/puzzla/projekt-podkladek/
+Przetestować pełny proces wysyłki projektu:
 
-Żeby otwierać edytor w nowej karcie/oknie, linkuj bezpośrednio do:
-https://puzzla.nazwa.pl/puzzla/projekt-podkladek/editor/
+brak nicka → modal działa poprawnie
 
-Jeśli wstawiasz to jako link (np. Allegro / opis / strona)
+wpis nicka → Wyślij → plik trafia na serwer
 
-Użyj klasycznie:
+sprawdzić zachowanie Enter / Wróć / zamknięcie modala
 
-<a href="https://puzzla.nazwa.pl/puzzla/projekt-podkladek/editor/" target="_blank" rel="noopener noreferrer">
-  Otwórz edytor podkładek
-</a>
+Krytyczny test nicka z odstępami:
 
+wpisać np. „Jan Kowalski”
 
-target="_blank" = nowe okno/karta
+sprawdzić czy upload dochodzi do /api/upload.php
 
-rel="noopener noreferrer" = bezpieczniej (standard)
+zweryfikować czy sanitize/order_id nie blokuje zapisu
 
-Jeśli otwierasz z JS (np. po kliknięciu przycisku)
-window.open("https://puzzla.nazwa.pl/puzzla/projekt-podkladek/editor/", "_blank", "noopener,noreferrer");
+sprawdzić Network + console w przeglądarce
 
-2) Wariant “ładny” – startowa strona z przyciskiem “Otwórz edytor”
+Zweryfikować generowanie plików:
 
-Jeśli chcesz, żeby w katalogu /projekt-podkladek/ był prosty index.html, który kieruje do edytora (np. dla porządku):
+czy JPG powstaje poprawnie
 
-/puzzla/projekt-podkladek/index.html:
+czy JSON wysyła się razem
 
-<!doctype html>
-<html lang="pl">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Projektowanie podkładek</title>
-</head>
-<body style="font-family:system-ui; padding:24px;">
-  <h1>Projektowanie podkładek</h1>
-  <p>Otwórz edytor w nowej karcie:</p>
-  <p>
-    <a href="./editor/" target="_blank" rel="noopener noreferrer"
-       style="display:inline-block;padding:12px 16px;background:#111;color:#fff;border-radius:10px;text-decoration:none;">
-      Otwórz edytor
-    </a>
-  </p>
-</body>
-</html>
+czy backend zapisuje dane
 
-3) Brak nicku = “noname” (wiemy) — co dziś możesz zrobić bez zmian w kodzie
+Ogólny test stabilności:
 
-Na teraz, jeśli klient nie wpisze nicku, upload będzie miał losową nazwę (bo backend i tak dodaje timestamp+losowość). To nie zepsuje produkcji, ale utrudnia przypisanie do zamówienia.
+kilka prób wysyłki pod rząd
 
-Doraźnie (operacyjnie):
+różne nicki (spacje, polskie znaki, cyfry)
 
-w instrukcji dla klienta dopisz:
-„W polu Podpis / nick wpisz proszę numer zamówienia.”
-
-4) Co zrobimy jako następny krok (w kodzie)
-
-Dwie sensowne opcje walidacji:
-
-Wymagaj nicku przy wysyłce (najprościej)
-
-bez nicku: komunikat i stop
-
-Automatycznie podstaw nick (np. “zamówienie_123” lub “klient”)
-
-ale Ty już zauważyłeś, że “noname” jest średnie, więc raczej opcja 1.
-
-Jak wrócimy do tematu, wkleisz aktualny editor/editor.js i zrobię to tak, żeby:
-
-bez nicku nie dało się wysłać do produkcji,
-
-a pole dostało “czerwony” hint + toast.
-
-Na dziś tyle 👍
+Cel: upewnić się, że proces uploadu działa w 100% niezależnie od wpisanego nicka.
