@@ -1,12 +1,10 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * Zmiany 2026-02-08:
- * - Podgląd: JPG q=0.70
- * - Produkcja: JPG q=1.0 (nakładka print.png)
- * - Brak podpisu: modal z polem (bez cofania)
- * - Usunięty przycisk "Druk PNG"
- * - Szablony: list.json (server) -> fallback index.json
+ * Hotfix 2026-02-08:
+ * - Upload: JPG -> jeśli backend odrzuci (415/only PNG) => fallback PNG
+ * - Modal: poprawiony focus, żeby nie było ostrzeżeń aria-hidden
+ * - Szablony: list.json (serwer) -> fallback index.json
  * ============================================================
  */
 
@@ -26,7 +24,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-08-02";
+const CACHE_VERSION = "2026-02-08-03";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -799,8 +797,6 @@ async function fetchJsonFirstOk(urls) {
 }
 
 async function loadTemplates() {
-  // 1) Serwerowa lista (docelowo generowana automatycznie)
-  // 2) Fallback do starego index.json (GitHub/static)
   const candidates = [
     `${REPO_BASE}/assets/templates/list.json`,
     `${REPO_BASE}/assets/templates/index.json`,
@@ -943,12 +939,7 @@ function showFinalOverlay(title, msg) {
   document.body.style.overflow = "hidden";
 }
 
-/**
- * Render „produkcyjny” JPG (q=1.0):
- * - jeśli jest szablon: foto + print.png
- * - jeśli brak szablonu: samo foto
- */
-function renderProductionJpgBlob() {
+function renderProductionWithPrintOverlayToBlob(mime, qualityOrNull) {
   return new Promise((resolve, reject) => {
     if (!uploadedImg) return reject(new Error("Brak zdjęcia"));
 
@@ -957,11 +948,11 @@ function renderProductionJpgBlob() {
         canvas.toBlob(
           (blob) => {
             redraw();
-            if (!blob) return reject(new Error("Nie udało się wygenerować JPG"));
+            if (!blob) return reject(new Error("Nie udało się wygenerować pliku"));
             resolve(blob);
           },
-          "image/jpeg",
-          1.0
+          mime,
+          qualityOrNull == null ? undefined : qualityOrNull
         );
       } catch (e) {
         redraw();
@@ -1004,6 +995,16 @@ function renderProductionJpgBlob() {
   });
 }
 
+// Produkcja: JPG q=1.0
+function renderProductionJpgBlob() {
+  return renderProductionWithPrintOverlayToBlob("image/jpeg", 1.0);
+}
+
+// Fallback: PNG (dla starego upload.php)
+function renderProductionPngBlob() {
+  return renderProductionWithPrintOverlayToBlob("image/png", null);
+}
+
 function buildProjectJson() {
   const nick = (nickInput?.value || "").trim();
   const dpi = getEffectiveDpi();
@@ -1030,16 +1031,14 @@ function sanitizeOrderId(raw) {
     .slice(0, 60);
 }
 
-async function uploadToServer(jpgBlob, jsonText) {
+async function uploadToServer(blob, jsonText, filename) {
   const fd = new FormData();
 
   const orderId = sanitizeOrderId(nickInput?.value || "");
   if (orderId) fd.append("order_id", orderId);
 
-  // UWAGA: zachowuję nazwę pola "png" dla kompatybilności z backendem,
-  // ale realnie wysyłamy JPG. Jeśli upload.php waliduje typ/rozszerzenie,
-  // trzeba dostosować upload.php.
-  fd.append("png", jpgBlob, "projekt_PRINT.jpg");
+  // Zachowuję nazwę pola "png" dla kompatybilności z istniejącym upload.php
+  fd.append("png", blob, filename);
   fd.append("json", jsonText);
 
   const res = await fetch(UPLOAD_ENDPOINT, {
@@ -1060,10 +1059,13 @@ async function uploadToServer(jpgBlob, jsonText) {
 
 /* ===================== [MODAL NICK] ===================== */
 let pendingSendAfterNick = false;
+let lastFocusElBeforeModal = null;
 
 function openNickModal() {
   if (!nickModal) return;
   pendingSendAfterNick = true;
+
+  lastFocusElBeforeModal = document.activeElement;
 
   nickModal.style.display = "flex";
   nickModal.setAttribute("aria-hidden", "false");
@@ -1084,11 +1086,25 @@ function closeNickModal() {
   pendingSendAfterNick = false;
   if (!nickModal) return;
 
+  // zdejmij focus z elementów w modalu zanim go ukryjemy (usuwa warning aria-hidden)
+  const ae = document.activeElement;
+  if (ae && nickModal.contains(ae)) {
+    try { ae.blur(); } catch {}
+  }
+
   nickModal.style.display = "none";
   nickModal.setAttribute("aria-hidden", "true");
 
   document.documentElement.style.overflow = "";
   document.body.style.overflow = "";
+
+  // przywróć focus sensownie
+  setTimeout(() => {
+    if (nickInput) nickInput.focus();
+    else if (lastFocusElBeforeModal && typeof lastFocusElBeforeModal.focus === "function") {
+      lastFocusElBeforeModal.focus();
+    }
+  }, 0);
 }
 
 function confirmNickFromModal() {
@@ -1107,7 +1123,6 @@ function confirmNickFromModal() {
 
   closeNickModal();
 
-  // kontynuuj wysyłkę bez ponownego klikania
   if (pendingSendAfterNick) {
     pendingSendAfterNick = false;
     sendToProduction(true);
@@ -1166,9 +1181,26 @@ async function sendToProduction(skipNickCheck = false) {
   toast("Wysyłanie do realizacji…");
 
   try {
-    const jpgBlob = await renderProductionJpgBlob();
     const jsonText = buildProjectJson();
-    await uploadToServer(jpgBlob, jsonText);
+
+    // 1) próbujemy JPG (docelowo)
+    try {
+      const jpgBlob = await renderProductionJpgBlob();
+      await uploadToServer(jpgBlob, jsonText, "projekt_PRINT.jpg");
+    } catch (e) {
+      const msg = String(e?.message || e);
+      const looksLikeOnlyPng =
+        msg.includes("HTTP 415") ||
+        msg.toLowerCase().includes("only png") ||
+        msg.toLowerCase().includes("unsupported media type");
+
+      if (!looksLikeOnlyPng) throw e;
+
+      // 2) fallback do PNG (żeby realizacja działała na starym upload.php)
+      toast("Serwer przyjmuje tylko PNG — wysyłam PNG (awaryjnie).");
+      const pngBlob = await renderProductionPngBlob();
+      await uploadToServer(pngBlob, jsonText, "projekt_PRINT.png");
+    }
 
     showFinalOverlay(
       "Wysłano do realizacji ✅",
