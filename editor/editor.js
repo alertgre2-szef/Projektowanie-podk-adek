@@ -1,10 +1,10 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * Hotfix 2026-02-08:
- * - Upload: JPG -> jeśli backend odrzuci (415/only PNG) => fallback PNG
- * - Modal: poprawiony focus, żeby nie było ostrzeżeń aria-hidden
- * - Szablony: list.json (serwer) -> fallback index.json
+ * 2026-02-08:
+ * - Szablony: auto-index z /api/templates.php (serwer) + fallback list.json/index.json
+ * - Modal: poprawiony focus (aria-hidden warning out)
+ * - Eksport: podgląd JPG q=0.70
  * ============================================================
  */
 
@@ -24,7 +24,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-08-03";
+const CACHE_VERSION = "2026-02-08-05";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -798,6 +798,7 @@ async function fetchJsonFirstOk(urls) {
 
 async function loadTemplates() {
   const candidates = [
+    `${REPO_BASE}/api/templates.php`,
     `${REPO_BASE}/assets/templates/list.json`,
     `${REPO_BASE}/assets/templates/index.json`,
   ];
@@ -960,7 +961,6 @@ function renderProductionWithPrintOverlayToBlob(mime, qualityOrNull) {
       }
     };
 
-    // brak szablonu -> sam render zdjęcia
     if (!currentTemplate) {
       try {
         clear();
@@ -973,7 +973,6 @@ function renderProductionWithPrintOverlayToBlob(mime, qualityOrNull) {
       return;
     }
 
-    // jest szablon -> dokładamy print.png
     const printUrl = withV(templateFolderUrl(currentTemplate.id) + "print.png");
     const printImg = new Image();
     printImg.crossOrigin = "anonymous";
@@ -995,14 +994,8 @@ function renderProductionWithPrintOverlayToBlob(mime, qualityOrNull) {
   });
 }
 
-// Produkcja: JPG q=1.0
 function renderProductionJpgBlob() {
   return renderProductionWithPrintOverlayToBlob("image/jpeg", 1.0);
-}
-
-// Fallback: PNG (dla starego upload.php)
-function renderProductionPngBlob() {
-  return renderProductionWithPrintOverlayToBlob("image/png", null);
 }
 
 function buildProjectJson() {
@@ -1037,7 +1030,6 @@ async function uploadToServer(blob, jsonText, filename) {
   const orderId = sanitizeOrderId(nickInput?.value || "");
   if (orderId) fd.append("order_id", orderId);
 
-  // Zachowuję nazwę pola "png" dla kompatybilności z istniejącym upload.php
   fd.append("png", blob, filename);
   fd.append("json", jsonText);
 
@@ -1086,7 +1078,6 @@ function closeNickModal() {
   pendingSendAfterNick = false;
   if (!nickModal) return;
 
-  // zdejmij focus z elementów w modalu zanim go ukryjemy (usuwa warning aria-hidden)
   const ae = document.activeElement;
   if (ae && nickModal.contains(ae)) {
     try { ae.blur(); } catch {}
@@ -1098,7 +1089,6 @@ function closeNickModal() {
   document.documentElement.style.overflow = "";
   document.body.style.overflow = "";
 
-  // przywróć focus sensownie
   setTimeout(() => {
     if (nickInput) nickInput.focus();
     else if (lastFocusElBeforeModal && typeof lastFocusElBeforeModal.focus === "function") {
@@ -1182,25 +1172,8 @@ async function sendToProduction(skipNickCheck = false) {
 
   try {
     const jsonText = buildProjectJson();
-
-    // 1) próbujemy JPG (docelowo)
-    try {
-      const jpgBlob = await renderProductionJpgBlob();
-      await uploadToServer(jpgBlob, jsonText, "projekt_PRINT.jpg");
-    } catch (e) {
-      const msg = String(e?.message || e);
-      const looksLikeOnlyPng =
-        msg.includes("HTTP 415") ||
-        msg.toLowerCase().includes("only png") ||
-        msg.toLowerCase().includes("unsupported media type");
-
-      if (!looksLikeOnlyPng) throw e;
-
-      // 2) fallback do PNG (żeby realizacja działała na starym upload.php)
-      toast("Serwer przyjmuje tylko PNG — wysyłam PNG (awaryjnie).");
-      const pngBlob = await renderProductionPngBlob();
-      await uploadToServer(pngBlob, jsonText, "projekt_PRINT.png");
-    }
+    const jpgBlob = await renderProductionJpgBlob();
+    await uploadToServer(jpgBlob, jsonText, "projekt_PRINT.jpg");
 
     showFinalOverlay(
       "Wysłano do realizacji ✅",
@@ -1237,3 +1210,5 @@ if (btnSendToProduction) {
 
   requestAnimationFrame(() => renderDangerOverlay());
 })();
+
+// === KONIEC KODU — editor.js ===
