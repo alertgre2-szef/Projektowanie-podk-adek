@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Edytor podkładki</title>
 
-  <link rel="stylesheet" href="./style.css?v=2026-02-08-18" />
+  <link rel="stylesheet" href="./style.css?v=2026-02-08-17" />
 </head>
 <body>
   <div class="app">
@@ -88,8 +88,49 @@
 
   <div class="toastContainer" id="toastContainer"></div>
 
-  <!-- MODAL + overlay bez zmian -->
-  <!-- (zostawione dokładnie jak było) -->
+  <!-- ========================= -->
+  <!-- MODAL: brak nicka -->
+  <!-- ========================= -->
+  <div id="nickModal" class="modalOverlay" aria-hidden="true" style="display:none;">
+    <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="nickModalTitle">
+      <div class="modalHeader">
+        <div id="nickModalTitle" class="modalTitle">Podpis / nr zamówienia</div>
+        <button id="nickModalClose" class="modalClose" type="button" aria-label="Zamknij">×</button>
+      </div>
+
+      <div class="modalBody">
+        <div class="modalText">
+          Aby wysłać projekt do realizacji, wpisz proszę podpis / nick / nr zamówienia.
+        </div>
+
+        <input
+          id="nickModalInput"
+          type="text"
+          placeholder="np. Kowalski / nick / nr zamówienia"
+          autocomplete="off"
+        />
+
+        <div id="nickModalHint" class="modalHint" style="display:none;">
+          Uzupełnij pole — to wymagane do wysłania projektu.
+        </div>
+      </div>
+
+      <div class="modalFooter">
+        <button id="nickModalCancel" class="btn secondary" type="button">Wróć</button>
+        <button id="nickModalSave" class="btn" type="button">Wyślij</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= -->
+  <!-- FINAL OVERLAY: po wysłaniu -->
+  <!-- ========================= -->
+  <div id="finalOverlay" class="finalOverlay" style="display:none;">
+    <div class="finalCard" role="dialog" aria-modal="true" aria-labelledby="finalOverlayTitle">
+      <div id="finalOverlayTitle" class="finalTitle">Wysłano ✅</div>
+      <div id="finalOverlayMsg" class="finalMsg">Projekt został przekazany do produkcji.</div>
+    </div>
+  </div>
 
   <script src="./editor.js?v=2026-02-08-18" defer></script>
 
