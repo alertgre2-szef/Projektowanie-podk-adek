@@ -401,15 +401,11 @@ function setShape(next, opts = {}) {
 
   if (shape === "circle") {
     clipLayer.style.clipPath = "circle(50% at 50% 50%)";
-canvas.style.clipPath = "circle(50% at 50% 50%)";
-canvas.style.webkitClipPath = "circle(50% at 50% 50%)";
     cutGuide.style.borderRadius = "999px";
     setShadeCircle();
   } else {
     const rPx = Math.round(CANVAS_PX * 0.05);
     clipLayer.style.clipPath = `inset(0 round ${rPx}px)`;
-canvas.style.clipPath = `inset(0 round ${rPx}px)`;
-canvas.style.webkitClipPath = `inset(0 round ${rPx}px)`;
     cutGuide.style.borderRadius = "10px";
     setShadeSquare();
   }
