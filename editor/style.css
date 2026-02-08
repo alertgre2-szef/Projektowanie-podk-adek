@@ -120,15 +120,10 @@ body {
   position: absolute;
   inset: 0;
   pointer-events: none;
-
-  /* musi być NAD shadeLayer, żeby narożniki były czytelnie czarne */
   z-index: 13;
-
-  /* czarne poza kształtem (wycina “dziurę” wg border-radius ustawianego w JS) */
   background: transparent;
   box-shadow: 0 0 0 9999px #000;
 }
-
 
 /* Linia cięcia 9×9 (90% pola) — ZMIANA: ukryta */
 .cutGuide {
