@@ -1,10 +1,12 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * * FILE_VERSION: 2026-02-08-16
- * - Maska PNG jako overlay <img class="maskOverlay"> (bez shade/danger/clipLayer)
- * - JS sam wstrzykuje element maski do #preview (bez zmian w index.html)
- * - Fallback ścieżek do maski (kilka lokalizacji)
+ * * FILE_VERSION: 2026-02-08-17
+ * - Maski PNG jako overlay <img id="maskOverlay" class="maskOverlay">
+ * - Używamy WYŁĄCZNIE gotowych masek z repo:
+ *   /editor/assets/masks/mask_square.png
+ *   /editor/assets/masks/mask_circle.png
+ * - Usunięto logikę fallback / zgadywania lokalizacji masek
  * ============================================================
  */
 
@@ -24,30 +26,20 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-08-16";
+const CACHE_VERSION = "2026-02-08-17";
 window.CACHE_VERSION = CACHE_VERSION; // dla index.html (wyświetlanie wersji)
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
 
 /**
- * Maski:
- * - nazwij pliki: square.png i circle.png (albo square.webp / circle.webp)
- * - wrzuć do jednego z katalogów poniżej (albo dopisz swój)
+ * Docelowe maski (zgodnie ze strukturą repo):
+ * /editor/assets/masks/mask_square.png
+ * /editor/assets/masks/mask_circle.png
  */
-const MASK_CANDIDATES = {
-  square: [
-    `${REPO_BASE}/assets/masks/square.png`,
-    `${REPO_BASE}/assets/masks/square.webp`,
-    `${REPO_BASE}/assets/templates/masks/square.png`,
-    `${REPO_BASE}/assets/templates/masks/square.webp`,
-  ],
-  circle: [
-    `${REPO_BASE}/assets/masks/circle.png`,
-    `${REPO_BASE}/assets/masks/circle.webp`,
-    `${REPO_BASE}/assets/templates/masks/circle.png`,
-    `${REPO_BASE}/assets/templates/masks/circle.webp`,
-  ],
+const MASK_URLS = {
+  square: `${REPO_BASE}/editor/assets/masks/mask_square.png`,
+  circle: `${REPO_BASE}/editor/assets/masks/mask_circle.png`,
 };
 
 /* ===================== [UPLOAD DO REALIZACJI] ===================== */
@@ -108,6 +100,18 @@ function ensureMaskEl() {
   if (!previewEl) return null;
   if (maskEl && maskEl.isConnected) return maskEl;
 
+  // Preferujemy istniejący element z index.html:
+  const byId = document.getElementById("maskOverlay");
+  if (byId) {
+    byId.classList.add("maskOverlay");
+    byId.alt = "";
+    byId.setAttribute("aria-hidden", "true");
+    byId.draggable = false;
+    maskEl = byId;
+    return maskEl;
+  }
+
+  // Fallback: jeśli nie ma w HTML, tworzymy (ale bez zgadywania ścieżek)
   maskEl = previewEl.querySelector("img.maskOverlay");
   if (maskEl) return maskEl;
 
@@ -117,41 +121,21 @@ function ensureMaskEl() {
   img.setAttribute("aria-hidden", "true");
   img.draggable = false;
 
-  // dajemy NA KONIEC, żeby była nad canvasem (CSS: z-index: 50)
+  // na końcu, żeby było nad canvasem (CSS: z-index: 50)
   previewEl.appendChild(img);
   maskEl = img;
   return maskEl;
 }
 
-function preloadImage(url) {
-  return new Promise((resolve, reject) => {
-    const im = new Image();
-    im.onload = () => resolve(url);
-    im.onerror = reject;
-    im.src = url;
-  });
-}
-
-async function applyMaskForShape(nextShape) {
+function applyMaskForShape(nextShape) {
   const el = ensureMaskEl();
   if (!el) return;
 
-  const candidates = nextShape === "circle" ? MASK_CANDIDATES.circle : MASK_CANDIDATES.square;
-  const urls = (candidates || []).map((u) => withV(u));
+  const raw = nextShape === "circle" ? MASK_URLS.circle : MASK_URLS.square;
+  const url = withV(raw);
 
-  for (const u of urls) {
-    try {
-      await preloadImage(u);
-      el.style.display = "block";
-      el.src = u;
-      return;
-    } catch (_) {}
-  }
-
-  // jeśli nic nie znaleziono — chowamy, żeby nie przeszkadzało
-  el.removeAttribute("src");
-  el.style.display = "none";
-  console.warn("Nie znaleziono maski dla shape=", nextShape, "Sprawdź MASK_CANDIDATES w editor.js");
+  el.style.display = "block";
+  el.src = url;
 }
 
 /* ===================== [SEKCJA 3] STAN ===================== */
@@ -401,7 +385,7 @@ async function setShape(next, opts = {}) {
   if (btnSquare) btnSquare.classList.toggle("active", shape === "square");
   if (btnCircle) btnCircle.classList.toggle("active", shape === "circle");
 
-  await applyMaskForShape(shape);
+  applyMaskForShape(shape);
 
   redraw();
   updateStatusBar();
