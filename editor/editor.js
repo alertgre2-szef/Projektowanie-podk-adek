@@ -24,7 +24,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-08-05";
+const CACHE_VERSION = "2026-02-08-06";
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
@@ -804,7 +804,13 @@ async function loadTemplates() {
   ];
 
   const data = await fetchJsonFirstOk(candidates);
-  const list = Array.isArray(data?.coasters) ? data.coasters : [];
+
+  // kompatybilność: list/index.json -> { coasters: [...] }
+  // (opcjonalnie) inne źródła -> { templates: [...] }
+  const list =
+    Array.isArray(data?.coasters) ? data.coasters :
+    Array.isArray(data?.templates) ? data.templates :
+    [];
 
   const normalized = list
     .filter((t) => t && t.id)
