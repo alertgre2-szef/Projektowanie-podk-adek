@@ -1,4 +1,4 @@
-/* FILE_VERSION: 2026-02-08-17 */
+/* FILE_VERSION: 2026-02-08-18 */
 /* === RESET === */
 
 * {
@@ -102,7 +102,6 @@ body {
   pointer-events: none;
   z-index: 10;
 
-  /* kosmetyka UX */
   -webkit-user-drag: none;
   user-select: none;
 }
@@ -253,6 +252,127 @@ input[type="file"], input[type="text"] {
   pointer-events:auto;
 }
 .toastClose:hover{ background: rgba(255,255,255,0.25); }
+
+/* ========================= */
+/* MODAL: nick */
+/* ========================= */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 20000;
+}
+
+.modalCard {
+  width: min(460px, calc(100vw - 32px));
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  border: 1px solid #e5e7eb;
+  padding: 14px;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.modalTitle {
+  font-weight: 800;
+  font-size: 15px;
+  color: #111827;
+}
+
+/* Krzyżyk NIEpotrzebny, bo jest "Wróć" */
+.modalClose {
+  display: none;
+}
+
+.modalBody {
+  display: grid;
+  gap: 10px;
+}
+
+.modalText {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.35;
+}
+
+.modalHint {
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+/* Stopka: układ pionowy, aby "Wróć" było dużo niżej */
+.modalFooter {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* Najpierw Wyślij (bliżej inputa) */
+#nickModalSave {
+  order: 1;
+  margin-top: 0;
+}
+
+/* "Wróć" dalej i przygaszone */
+#nickModalCancel {
+  order: 2;
+  margin-top: 14px;
+  opacity: 0.75;
+  border-color: #e5e7eb;
+  color: #374151;
+}
+#nickModalCancel:hover {
+  opacity: 0.9;
+}
+
+/* ========================= */
+/* FINAL OVERLAY */
+/* ========================= */
+.finalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.60);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 21000;
+}
+
+.finalCard {
+  width: min(520px, calc(100vw - 32px));
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  border: 1px solid #e5e7eb;
+  padding: 16px;
+  text-align: center;
+}
+
+.finalTitle {
+  font-weight: 900;
+  font-size: 18px;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.finalMsg {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.35;
+}
 
 /* Mobile */
 @media (max-width: 768px) {
