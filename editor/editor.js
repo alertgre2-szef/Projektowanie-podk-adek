@@ -1,12 +1,12 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * * FILE_VERSION: 2026-02-08-17
+ * * FILE_VERSION: 2026-02-08-18
  * - Maski PNG jako overlay <img id="maskOverlay" class="maskOverlay">
  * - Używamy WYŁĄCZNIE gotowych masek z repo:
  *   /editor/assets/masks/mask_square.png
  *   /editor/assets/masks/mask_circle.png
- * - Usunięto logikę fallback / zgadywania lokalizacji masek
+ * - Naprawa: brak nicka -> zawsze jest komunikat (modal jeśli istnieje, inaczej toast/alert + fokus)
  * ============================================================
  */
 
@@ -26,7 +26,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-08-17";
+const CACHE_VERSION = "2026-02-08-18";
 window.CACHE_VERSION = CACHE_VERSION; // dla index.html (wyświetlanie wersji)
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
@@ -121,7 +121,7 @@ function ensureMaskEl() {
   img.setAttribute("aria-hidden", "true");
   img.draggable = false;
 
-  // na końcu, żeby było nad canvasem (CSS: z-index: 50)
+  // na końcu, żeby było nad canvasem (CSS: z-index: 10+)
   previewEl.appendChild(img);
   maskEl = img;
   return maskEl;
@@ -1034,10 +1034,34 @@ async function uploadToServer(blob, jsonText, filename) {
 let pendingSendAfterNick = false;
 let lastFocusElBeforeModal = null;
 
-function openNickModal() {
-  if (!nickModal) return;
-  pendingSendAfterNick = true;
+function focusNickFieldWithHint() {
+  const msg = "Uzupełnij podpis / nick (np. nazwisko lub nr zamówienia), aby wysłać projekt do realizacji.";
+  toast(msg);
 
+  if (nickInput) {
+    try {
+      nickInput.focus({ preventScroll: true });
+    } catch {
+      try { nickInput.focus(); } catch {}
+    }
+    try {
+      nickInput.scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch {}
+    nickInput.style.outline = "2px solid #f59e0b";
+    setTimeout(() => { nickInput.style.outline = ""; }, 1200);
+  } else {
+    alert(msg);
+  }
+}
+
+function openNickModal() {
+  // 🔧 Naprawa: jeśli modal nie istnieje w DOM, to i tak pokazujemy komunikat
+  if (!nickModal || !nickModalInput || !nickModalSave) {
+    focusNickFieldWithHint();
+    return;
+  }
+
+  pendingSendAfterNick = true;
   lastFocusElBeforeModal = document.activeElement;
 
   nickModal.style.display = "flex";
@@ -1046,10 +1070,8 @@ function openNickModal() {
   if (nickModalHint) nickModalHint.style.display = "none";
 
   const current = (nickInput?.value || "").trim();
-  if (nickModalInput) {
-    nickModalInput.value = current;
-    setTimeout(() => nickModalInput.focus(), 0);
-  }
+  nickModalInput.value = current;
+  setTimeout(() => nickModalInput.focus(), 0);
 
   document.documentElement.style.overflow = "hidden";
   document.body.style.overflow = "hidden";
@@ -1136,7 +1158,7 @@ async function sendToProduction(skipNickCheck = false) {
 
   const nick = (nickInput?.value || "").trim();
   if (!skipNickCheck && !nick) {
-    openNickModal();
+    openNickModal(); // teraz zawsze coś pokaże (modal albo fallback)
     return;
   }
 
@@ -1189,3 +1211,5 @@ if (btnSendToProduction) {
   updateStatusBar();
   pushHistory();
 })();
+
+/* === KONIEC KODU — editor.js === */
