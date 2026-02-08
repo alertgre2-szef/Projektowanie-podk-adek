@@ -10,8 +10,9 @@ if ($base === false || !is_dir($base)) {
 }
 
 $out = [];
-
 $dirs = scandir($base);
+if (!is_array($dirs)) $dirs = [];
+
 foreach ($dirs as $d) {
   if ($d === '.' || $d === '..') continue;
 
@@ -22,7 +23,8 @@ foreach ($dirs as $d) {
   $edit  = $path . '/edit.png';
   $print = $path . '/print.png';
 
-  if (file_exists($thumb) && file_exists($edit) && file_exists($print)) {
+  // dodajemy tylko kompletne szablony
+  if (is_file($thumb) && is_file($edit) && is_file($print)) {
     $out[] = [
       'id' => $d,
       'title' => $d
@@ -30,6 +32,6 @@ foreach ($dirs as $d) {
   }
 }
 
-echo json_encode(['coasters' => $out]);
+echo json_encode(['coasters' => $out], JSON_UNESCAPED_UNICODE);
 
 // === KONIEC KODU — templates.php ===
