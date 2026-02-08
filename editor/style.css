@@ -1,4 +1,4 @@
-/* FILE_VERSION: 2026-02-08-11 */
+/* FILE_VERSION: 2026-02-08-13 */
 /* === RESET === */
 * {
   box-sizing: border-box;
@@ -81,9 +81,7 @@ body {
   border-radius: 14px;
   background: #000;
 
-  /* ZMIANA: bez przerywanej ramki (mniej szumu) */
   border: 1px solid #e5e7eb;
-
   overflow: hidden;
 }
 
@@ -115,22 +113,26 @@ body {
   z-index: 14;
 }
 
-/* Warstwa klipu (kształt) */
+/* maska narożników (SVG wstawiane w JS) */
 .clipLayer {
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 13;
-  background: transparent;
-  box-shadow: 0 0 0 9999px #000;
 }
 
-/* Linia cięcia 9×9 (90% pola) — ZMIANA: ukryta */
+.clipLayer svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Linia cięcia 9×9 (90% pola) — ukryta */
 .cutGuide {
   display: none;
 }
 
-/* SAFE AREA (8×8) — ZMIANA: ukryta */
+/* SAFE AREA (8×8) — ukryta */
 .safeGuide {
   display: none;
 }
