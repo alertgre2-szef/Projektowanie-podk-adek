@@ -79,7 +79,10 @@ body {
   position: relative;
   border-radius: 14px;
   background: #fafafa;
-  border: 2px dashed #cfd4dc;
+
+  /* ZMIANA: bez przerywanej ramki (mniej szumu) */
+  border: 1px solid #e5e7eb;
+
   overflow: hidden;
 }
 
@@ -97,11 +100,8 @@ body {
   pointer-events: none;
   z-index: 12;
 
-  background:
-    linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) top / 100% 5% no-repeat,
-    linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) bottom / 100% 5% no-repeat,
-    linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) left / 5% 90% no-repeat,
-    linear-gradient(rgba(0,0,0,0.50), rgba(0,0,0,0.50)) right / 5% 90% no-repeat;
+  /* Uwaga: właściwy wygląd jest ustawiany w JS (square/circle) */
+  background: rgba(0,0,0,0.78);
 
   clip-path: inset(0 round 0px);
 }
@@ -122,35 +122,14 @@ body {
   z-index: 8;
 }
 
-/* Linia cięcia 9×9 (90% pola) */
+/* Linia cięcia 9×9 (90% pola) — ZMIANA: ukryta */
 .cutGuide {
-  position: absolute;
-  left: 5%;
-  top: 5%;
-  width: 90%;
-  height: 90%;
-  border: 2px dashed rgba(0,0,0,0.55);
-  border-radius: 10px;
-  pointer-events: none;
-  z-index: 15;
+  display: none;
 }
 
-/* SAFE AREA (8×8) */
+/* SAFE AREA (8×8) — ZMIANA: ukryta */
 .safeGuide {
-  position: absolute;
-  left: 10%;
-  top: 10%;
-  width: 80%;
-  height: 80%;
-  pointer-events: none;
-  z-index: 16;
-
-  border: 2px dashed rgba(255,255,255,0.95);
-  outline: 1px dashed rgba(0,0,0,0.65);
-  box-shadow: 0 0 0 2px rgba(0,0,0,0.08);
-  border-radius: 10px;
-
-  background: rgba(0,0,0,0.04);
+  display: none;
 }
 
 /* Żółte info pod podglądem */
@@ -315,3 +294,5 @@ input[type="file"], input[type="text"] {
   .warnBox { max-width: 100%; }
   .templateGrid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* === KONIEC KODU — style.css === */
