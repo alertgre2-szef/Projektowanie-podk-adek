@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-08-13
+ * FILE_VERSION: 2026-02-08-14
  * - Szablony: auto-index z /api/templates.php (serwer) + fallback list.json/index.json
  * - Modal: poprawiony focus (aria-hidden warning out)
  * - Eksport: podgląd JPG q=0.70
@@ -25,7 +25,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-08-13";
+const CACHE_VERSION = "2026-02-08-14";
 window.CACHE_VERSION = CACHE_VERSION; // dla index.html (wyświetlanie wersji)
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
@@ -455,14 +455,25 @@ function renderDangerOverlay() {
 }
 
 let resizeRaf = 0;
-window.addEventListener("resize", () => {
+
+function scheduleUiOverlaysRefresh() {
   if (resizeRaf) cancelAnimationFrame(resizeRaf);
   resizeRaf = requestAnimationFrame(() => {
     updateCornerMask();
     renderDangerOverlay();
     resizeRaf = 0;
   });
-});
+}
+
+// 1) klasycznie: gdy zmienia się okno
+window.addEventListener("resize", scheduleUiOverlaysRefresh);
+
+// 2) kluczowe: gdy zmienia się rozmiar samego #preview (np. reflow po doładowaniu miniatur)
+if (window.ResizeObserver && previewEl) {
+  const ro = new ResizeObserver(() => scheduleUiOverlaysRefresh());
+  ro.observe(previewEl);
+}
+
 
 function setShape(next, opts = {}) {
   shape = next;
