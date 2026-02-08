@@ -1,9 +1,10 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * * FILE_VERSION: 2026-02-08-14
- * - Stabilizacja overlay (ResizeObserver na #preview)
- * - Maska narożników: promień liczony z rozmiaru #preview (R=5% boku)
+ * * FILE_VERSION: 2026-02-08-16
+ * - Maska PNG jako overlay <img class="maskOverlay"> (bez shade/danger/clipLayer)
+ * - JS sam wstrzykuje element maski do #preview (bez zmian w index.html)
+ * - Fallback ścieżek do maski (kilka lokalizacji)
  * ============================================================
  */
 
@@ -23,11 +24,31 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-08-14";
+const CACHE_VERSION = "2026-02-08-16";
 window.CACHE_VERSION = CACHE_VERSION; // dla index.html (wyświetlanie wersji)
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
+
+/**
+ * Maski:
+ * - nazwij pliki: square.png i circle.png (albo square.webp / circle.webp)
+ * - wrzuć do jednego z katalogów poniżej (albo dopisz swój)
+ */
+const MASK_CANDIDATES = {
+  square: [
+    `${REPO_BASE}/assets/masks/square.png`,
+    `${REPO_BASE}/assets/masks/square.webp`,
+    `${REPO_BASE}/assets/templates/masks/square.png`,
+    `${REPO_BASE}/assets/templates/masks/square.webp`,
+  ],
+  circle: [
+    `${REPO_BASE}/assets/masks/circle.png`,
+    `${REPO_BASE}/assets/masks/circle.webp`,
+    `${REPO_BASE}/assets/templates/masks/circle.png`,
+    `${REPO_BASE}/assets/templates/masks/circle.webp`,
+  ],
+};
 
 /* ===================== [UPLOAD DO REALIZACJI] ===================== */
 const UPLOAD_ENDPOINT = `${REPO_BASE}/api/upload.php`;
@@ -45,12 +66,10 @@ const nickInput = document.getElementById("nickInput");
 const btnSquare = document.getElementById("btnSquare");
 const btnCircle = document.getElementById("btnCircle");
 
-const clipLayer = document.getElementById("clipLayer");
-const shadeLayer = document.getElementById("shadeLayer");
-const dangerLayer = document.getElementById("dangerLayer");
-const cutGuide = document.getElementById("cutGuide");
-const safeGuide = document.getElementById("safeGuide");
-
+/**
+ * Stare warstwy zostają w index.html, ale my ich już NIE używamy.
+ * (nie usuwam z DOM tutaj, żebyś nie miał side-effectów — później posprzątamy index)
+ */
 const templateGrid = document.getElementById("templateGrid");
 
 const btnDownloadPreview = document.getElementById("btnDownloadPreview");
@@ -81,6 +100,59 @@ const nickModalHint = document.getElementById("nickModalHint");
 
 // żeby dotyk nie scrollował strony podczas przesuwania/zoom
 canvas.style.touchAction = "none";
+
+/* ===================== [SEKCJA 2B] MASKA PNG (OVERLAY IMG) ===================== */
+let maskEl = null;
+
+function ensureMaskEl() {
+  if (!previewEl) return null;
+  if (maskEl && maskEl.isConnected) return maskEl;
+
+  maskEl = previewEl.querySelector("img.maskOverlay");
+  if (maskEl) return maskEl;
+
+  const img = document.createElement("img");
+  img.className = "maskOverlay";
+  img.alt = "";
+  img.setAttribute("aria-hidden", "true");
+  img.draggable = false;
+
+  // dajemy NA KONIEC, żeby była nad canvasem (CSS: z-index: 50)
+  previewEl.appendChild(img);
+  maskEl = img;
+  return maskEl;
+}
+
+function preloadImage(url) {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(url);
+    im.onerror = reject;
+    im.src = url;
+  });
+}
+
+async function applyMaskForShape(nextShape) {
+  const el = ensureMaskEl();
+  if (!el) return;
+
+  const candidates = nextShape === "circle" ? MASK_CANDIDATES.circle : MASK_CANDIDATES.square;
+  const urls = (candidates || []).map((u) => withV(u));
+
+  for (const u of urls) {
+    try {
+      await preloadImage(u);
+      el.style.display = "block";
+      el.src = u;
+      return;
+    } catch (_) {}
+  }
+
+  // jeśli nic nie znaleziono — chowamy, żeby nie przeszkadzało
+  el.removeAttribute("src");
+  el.style.display = "none";
+  console.warn("Nie znaleziono maski dla shape=", nextShape, "Sprawdź MASK_CANDIDATES w editor.js");
+}
 
 /* ===================== [SEKCJA 3] STAN ===================== */
 let shape = "square";
@@ -289,7 +361,7 @@ async function applyStateFromHistory(snap) {
 
   suppressHistory = true;
 
-  setShape(snap.shape, { skipHistory: true });
+  await setShape(snap.shape, { skipHistory: true });
 
   if (!snap.templateId) {
     clearTemplateSelection({ skipHistory: true });
@@ -322,125 +394,14 @@ async function redo() {
   await applyStateFromHistory(history[historyIndex]);
 }
 
-/* ===================== [SEKCJA 4] KSZTAŁT + SPADY + SAFE + DANGER ===================== */
-function setShadeSquare() {
-  if (!shadeLayer) return;
-  shadeLayer.style.clipPath = "";
-  shadeLayer.style.background =
-    "linear-gradient(rgba(0,0,0,0.78), rgba(0,0,0,0.78)) top / 100% 5% no-repeat," +
-    "linear-gradient(rgba(0,0,0,0.78), rgba(0,0,0,0.78)) bottom / 100% 5% no-repeat," +
-    "linear-gradient(rgba(0,0,0,0.78), rgba(0,0,0,0.78)) left / 5% 90% no-repeat," +
-    "linear-gradient(rgba(0,0,0,0.78), rgba(0,0,0,0.78)) right / 5% 90% no-repeat";
-}
-
-function setShadeCircle() {
-  if (!shadeLayer) return;
-  const CIRCLE_SHADE_STOP_PCT = 63;
-
-  shadeLayer.style.clipPath = "";
-  shadeLayer.style.background =
-    `radial-gradient(circle at 50% 50%, ` +
-    `rgba(0,0,0,0) 0%, ` +
-    `rgba(0,0,0,0) ${CIRCLE_SHADE_STOP_PCT}%, ` +
-    `rgba(0,0,0,0.78) ${CIRCLE_SHADE_STOP_PCT}%, ` +
-    `rgba(0,0,0,0.78) 100%)`;
-}
-
-function setSafeGuideForShape() {
-  if (!safeGuide) return;
-  safeGuide.style.borderRadius = shape === "circle" ? "999px" : "10px";
-}
-
-/* ---- Maska narożników (czarne poza kształtem produktu) ---- */
-function updateCornerMask() {
-  if (!clipLayer || !previewEl) return;
-
-  const w = previewEl.clientWidth;
-  const h = previewEl.clientHeight;
-  const size = Math.min(w, h);
-
-  // R=5mm na 100mm => 5% boku
-  const rPx = Math.round(size * 0.05);
-
-  if (shape === "circle") {
-    clipLayer.style.borderRadius = "50%";
-  } else {
-    clipLayer.style.borderRadius = `${rPx}px`;
-  }
-}
-
-let dangerRingEl = null;
-function renderDangerOverlay() {
-  if (!dangerLayer || !previewEl) return;
-
-  if (!dangerRingEl) {
-    dangerRingEl = document.createElement("div");
-    dangerRingEl.style.position = "absolute";
-    dangerRingEl.style.boxSizing = "border-box";
-    dangerRingEl.style.pointerEvents = "none";
-    dangerRingEl.style.zIndex = "14";
-    dangerRingEl.style.mixBlendMode = "multiply";
-    dangerLayer.appendChild(dangerRingEl);
-  }
-
-  const w = previewEl.clientWidth;
-  const h = previewEl.clientHeight;
-  const size = Math.min(w, h);
-
-  const insetPx = Math.round(size * 0.05);
-  const thickPx = Math.round(size * 0.05);
-
-  dangerRingEl.style.left = `${insetPx}px`;
-  dangerRingEl.style.top = `${insetPx}px`;
-  dangerRingEl.style.width = `${Math.max(0, size - insetPx * 2)}px`;
-  dangerRingEl.style.height = `${Math.max(0, size - insetPx * 2)}px`;
-  dangerRingEl.style.border = `${thickPx}px solid rgba(255, 208, 0, 0.22)`;
-
-  if (shape === "circle") {
-    dangerRingEl.style.borderRadius = "9999px";
-  } else {
-    // ring ma “miękkie” rogi, niezależnie od rogu produktu
-    const innerR = 10;
-    dangerRingEl.style.borderRadius = `${innerR + thickPx}px`;
-  }
-}
-
-/* ---- Stabilizacja po reflow (miniatury / czcionki / layout) ---- */
-let resizeRaf = 0;
-
-function scheduleUiOverlaysRefresh() {
-  if (resizeRaf) cancelAnimationFrame(resizeRaf);
-  resizeRaf = requestAnimationFrame(() => {
-    updateCornerMask();
-    renderDangerOverlay();
-    resizeRaf = 0;
-  });
-}
-
-window.addEventListener("resize", scheduleUiOverlaysRefresh);
-
-if (window.ResizeObserver && previewEl) {
-  const ro = new ResizeObserver(() => scheduleUiOverlaysRefresh());
-  ro.observe(previewEl);
-}
-
-function setShape(next, opts = {}) {
+/* ===================== [SEKCJA 4] KSZTAŁT ===================== */
+async function setShape(next, opts = {}) {
   shape = next;
 
-  btnSquare.classList.toggle("active", shape === "square");
-  btnCircle.classList.toggle("active", shape === "circle");
+  if (btnSquare) btnSquare.classList.toggle("active", shape === "square");
+  if (btnCircle) btnCircle.classList.toggle("active", shape === "circle");
 
-  if (shape === "circle") {
-    clipLayer.style.clipPath = "";
-    setShadeCircle();
-  } else {
-    setShadeSquare();
-  }
-
-  setSafeGuideForShape();
-
-  // po ustawieniu shape przelicz maskę + ring
-  scheduleUiOverlaysRefresh();
+  await applyMaskForShape(shape);
 
   redraw();
   updateStatusBar();
@@ -448,8 +409,8 @@ function setShape(next, opts = {}) {
   if (!opts.skipHistory) pushHistory();
 }
 
-btnSquare.addEventListener("click", () => setShape("square"));
-btnCircle.addEventListener("click", () => setShape("circle"));
+if (btnSquare) btnSquare.addEventListener("click", () => setShape("square"));
+if (btnCircle) btnCircle.addEventListener("click", () => setShape("circle"));
 
 /* ===================== [SEKCJA 5] RYSOWANIE ===================== */
 function clear() {
@@ -539,30 +500,32 @@ function resetPhotoTransformToCover() {
   applyClampToOffsets();
 }
 
-photoInput.addEventListener("change", (e) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
+if (photoInput) {
+  photoInput.addEventListener("change", (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const url = URL.createObjectURL(file);
-  const img = new Image();
+    const url = URL.createObjectURL(file);
+    const img = new Image();
 
-  img.onload = () => {
-    uploadedImg = img;
-    qualityWarnLevel = 0;
+    img.onload = () => {
+      uploadedImg = img;
+      qualityWarnLevel = 0;
 
-    resetPhotoTransformToCover();
-    redraw();
-    updateStatusBar();
-    pushHistory();
+      resetPhotoTransformToCover();
+      redraw();
+      updateStatusBar();
+      pushHistory();
 
-    toast("Zdjęcie wgrane ✅");
-    maybeWarnQuality(true);
+      toast("Zdjęcie wgrane ✅");
+      maybeWarnQuality(true);
 
-    URL.revokeObjectURL(url);
-  };
+      URL.revokeObjectURL(url);
+    };
 
-  img.src = url;
-});
+    img.src = url;
+  });
+}
 
 /* ===================== [SEKCJA 6B] DRAG + ZOOM (MYSZ/DOTYK) ===================== */
 function clientToCanvasPx(clientX, clientY) {
@@ -1226,7 +1189,7 @@ if (btnSendToProduction) {
 
 /* ===================== [SEKCJA 9] START ===================== */
 (async function init() {
-  setShape("square", { skipHistory: true });
+  await setShape("square", { skipHistory: true }); // ustawia też maskę
   clearTemplateSelection({ skipHistory: true });
 
   try {
@@ -1241,9 +1204,4 @@ if (btnSendToProduction) {
   redraw();
   updateStatusBar();
   pushHistory();
-
-  // po pierwszym renderze/układzie przelicz overlay jeszcze raz
-  requestAnimationFrame(() => scheduleUiOverlaysRefresh());
 })();
-
-// === KONIEC KODU — editor.js ===
