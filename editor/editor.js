@@ -1,10 +1,11 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * * FILE_VERSION: 2026-02-08-12
+ * FILE_VERSION: 2026-02-08-13
  * - Szablony: auto-index z /api/templates.php (serwer) + fallback list.json/index.json
  * - Modal: poprawiony focus (aria-hidden warning out)
  * - Eksport: podgląd JPG q=0.70
+ * - UI: czarne tło poza kształtem (maska SVG) + stabilny ring
  * ============================================================
  */
 
@@ -24,7 +25,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-08-12";
+const CACHE_VERSION = "2026-02-08-13";
 window.CACHE_VERSION = CACHE_VERSION; // dla index.html (wyświetlanie wersji)
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
@@ -350,6 +351,74 @@ function setSafeGuideForShape() {
   safeGuide.style.borderRadius = shape === "circle" ? "999px" : "10px";
 }
 
+/* ---------- Maska narożników (SVG): czarne poza kształtem ---------- */
+let cornerMaskSvg = null;
+
+function roundedRectPath(x, y, w, h, r) {
+  // r w jednostkach viewBox
+  const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  const x0 = x, y0 = y, x1 = x + w, y1 = y + h;
+
+  return [
+    `M ${x0 + rr} ${y0}`,
+    `H ${x1 - rr}`,
+    `A ${rr} ${rr} 0 0 1 ${x1} ${y0 + rr}`,
+    `V ${y1 - rr}`,
+    `A ${rr} ${rr} 0 0 1 ${x1 - rr} ${y1}`,
+    `H ${x0 + rr}`,
+    `A ${rr} ${rr} 0 0 1 ${x0} ${y1 - rr}`,
+    `V ${y0 + rr}`,
+    `A ${rr} ${rr} 0 0 1 ${x0 + rr} ${y0}`,
+    "Z",
+  ].join(" ");
+}
+
+function circlePath(cx, cy, r) {
+  // pełne koło z dwóch łuków
+  return `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx} ${cy + r} A ${r} ${r} 0 1 1 ${cx} ${cy - r} Z`;
+}
+
+function ensureCornerMask() {
+  if (!clipLayer) return;
+  if (cornerMaskSvg) return;
+
+  cornerMaskSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  cornerMaskSvg.setAttribute("viewBox", "0 0 100 100");
+  cornerMaskSvg.setAttribute("preserveAspectRatio", "none");
+  cornerMaskSvg.style.width = "100%";
+  cornerMaskSvg.style.height = "100%";
+  cornerMaskSvg.style.display = "block";
+
+  clipLayer.innerHTML = "";
+  clipLayer.appendChild(cornerMaskSvg);
+}
+
+function updateCornerMask() {
+  if (!clipLayer) return;
+  ensureCornerMask();
+
+  // tło poza kształtem = czarne (outer rect), dziura = shape (inner path) dzięki evenodd
+  const outer = "M 0 0 H 100 V 100 H 0 Z";
+
+  let inner = "";
+  if (shape === "circle") {
+    inner = circlePath(50, 50, 50);
+  } else {
+    // R=5% (na 10x10 cm: 5mm) => w viewBox 100x100 to r=5
+    inner = roundedRectPath(0, 0, 100, 100, 5);
+  }
+
+  const d = `${outer} ${inner}`;
+
+  cornerMaskSvg.innerHTML = "";
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", d);
+  path.setAttribute("fill", "#000");
+  path.setAttribute("fill-rule", "evenodd");
+  cornerMaskSvg.appendChild(path);
+}
+
+/* ---------- Żółty ring (stabilny) ---------- */
 let dangerRingEl = null;
 function renderDangerOverlay() {
   if (!dangerLayer || !previewEl) return;
@@ -364,9 +433,9 @@ function renderDangerOverlay() {
     dangerLayer.appendChild(dangerRingEl);
   }
 
-const w = previewEl.clientWidth;
-const h = previewEl.clientHeight;
-const size = Math.min(w, h);
+  const w = previewEl.clientWidth;
+  const h = previewEl.clientHeight;
+  const size = Math.min(w, h);
 
   const insetPx = Math.round(size * 0.05);
   const thickPx = Math.round(size * 0.05);
@@ -389,6 +458,7 @@ let resizeRaf = 0;
 window.addEventListener("resize", () => {
   if (resizeRaf) cancelAnimationFrame(resizeRaf);
   resizeRaf = requestAnimationFrame(() => {
+    updateCornerMask();
     renderDangerOverlay();
     resizeRaf = 0;
   });
@@ -401,23 +471,17 @@ function setShape(next, opts = {}) {
   btnCircle.classList.toggle("active", shape === "circle");
 
   if (shape === "circle") {
-    clipLayer.style.clipPath = "";
-clipLayer.style.borderRadius = "50%";
-
     cutGuide.style.borderRadius = "999px";
     setShadeCircle();
   } else {
-    const rPx = Math.round(CANVAS_PX * 0.05); // promień w canvas px (do eksportu/clipPath jeśli kiedyś wróci)
-const uiW = previewEl ? previewEl.clientWidth : 0;
-const uiR = uiW ? Math.round(uiW * 0.05) : 0; // promień w CSS px (do maski UI)
-    clipLayer.style.clipPath = "";
-clipLayer.style.borderRadius = "5%";
-
     cutGuide.style.borderRadius = "10px";
     setShadeSquare();
   }
 
   setSafeGuideForShape();
+
+  // Maska narożników + ring
+  updateCornerMask();
   renderDangerOverlay();
 
   redraw();
@@ -1220,7 +1284,11 @@ if (btnSendToProduction) {
   updateStatusBar();
   pushHistory();
 
-  requestAnimationFrame(() => renderDangerOverlay());
+  // po pierwszym renderze UI (żeby rozmiary były już policzone)
+  requestAnimationFrame(() => {
+    updateCornerMask();
+    renderDangerOverlay();
+  });
 })();
 
 // === KONIEC KODU — editor.js ===
