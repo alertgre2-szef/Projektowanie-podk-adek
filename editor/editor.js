@@ -24,7 +24,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-08-10";
+const CACHE_VERSION = "2026-02-08-10a";
 window.CACHE_VERSION = CACHE_VERSION; // dla index.html (wyświetlanie wersji)
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
@@ -364,8 +364,9 @@ function renderDangerOverlay() {
     dangerLayer.appendChild(dangerRingEl);
   }
 
-  const r = previewEl.getBoundingClientRect();
-  const size = Math.min(r.width, r.height);
+const w = previewEl.clientWidth;
+const h = previewEl.clientHeight;
+const size = Math.min(w, h);
 
   const insetPx = Math.round(size * 0.05);
   const thickPx = Math.round(size * 0.05);
@@ -400,12 +401,16 @@ function setShape(next, opts = {}) {
   btnCircle.classList.toggle("active", shape === "circle");
 
   if (shape === "circle") {
-    clipLayer.style.clipPath = "circle(50% at 50% 50%)";
+    clipLayer.style.clipPath = "";
+clipLayer.style.borderRadius = "9999px";
+
     cutGuide.style.borderRadius = "999px";
     setShadeCircle();
   } else {
     const rPx = Math.round(CANVAS_PX * 0.05);
-    clipLayer.style.clipPath = `inset(0 round ${rPx}px)`;
+    clipLayer.style.clipPath = "";
+clipLayer.style.borderRadius = `${rPx}px`;
+
     cutGuide.style.borderRadius = "10px";
     setShadeSquare();
   }
