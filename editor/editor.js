@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * * FILE_VERSION: 2026-02-08-11
+ * * FILE_VERSION: 2026-02-08-12
  * - Szablony: auto-index z /api/templates.php (serwer) + fallback list.json/index.json
  * - Modal: poprawiony focus (aria-hidden warning out)
  * - Eksport: podgląd JPG q=0.70
@@ -24,7 +24,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-08-11";
+const CACHE_VERSION = "2026-02-08-12";
 window.CACHE_VERSION = CACHE_VERSION; // dla index.html (wyświetlanie wersji)
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
@@ -402,7 +402,7 @@ function setShape(next, opts = {}) {
 
   if (shape === "circle") {
     clipLayer.style.clipPath = "";
-clipLayer.style.borderRadius = "9999px";
+clipLayer.style.borderRadius = "50%";
 
     cutGuide.style.borderRadius = "999px";
     setShadeCircle();
@@ -411,7 +411,7 @@ clipLayer.style.borderRadius = "9999px";
 const uiW = previewEl ? previewEl.clientWidth : 0;
 const uiR = uiW ? Math.round(uiW * 0.05) : 0; // promień w CSS px (do maski UI)
     clipLayer.style.clipPath = "";
-clipLayer.style.borderRadius = `${uiR}px`;
+clipLayer.style.borderRadius = "5%";
 
     cutGuide.style.borderRadius = "10px";
     setShadeSquare();
