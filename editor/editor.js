@@ -153,7 +153,7 @@ const MIN_USER_SCALE = 1.0;
 const MAX_USER_SCALE = 6.0;
 
 /* ===================== [SEKCJA 3B] TOAST + STATUS + HISTORIA + JAKOŚĆ ===================== */
-const TOAST_DEFAULT_MS = 20000;
+const TOAST_DEFAULT_MS = 10000;
 
 function toast(msg, ms = TOAST_DEFAULT_MS) {
   if (!toastContainer) return;
