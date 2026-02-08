@@ -1,11 +1,9 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-08-14
- * - Szablony: auto-index z /api/templates.php (serwer) + fallback list.json/index.json
- * - Modal: poprawiony focus (aria-hidden warning out)
- * - Eksport: podgląd JPG q=0.70
- * - UI: czarne tło poza kształtem (maska SVG) + stabilny ring
+ * * FILE_VERSION: 2026-02-08-14
+ * - Stabilizacja overlay (ResizeObserver na #preview)
+ * - Maska narożników: promień liczony z rozmiaru #preview (R=5% boku)
  * ============================================================
  */
 
@@ -326,6 +324,7 @@ async function redo() {
 
 /* ===================== [SEKCJA 4] KSZTAŁT + SPADY + SAFE + DANGER ===================== */
 function setShadeSquare() {
+  if (!shadeLayer) return;
   shadeLayer.style.clipPath = "";
   shadeLayer.style.background =
     "linear-gradient(rgba(0,0,0,0.78), rgba(0,0,0,0.78)) top / 100% 5% no-repeat," +
@@ -335,6 +334,7 @@ function setShadeSquare() {
 }
 
 function setShadeCircle() {
+  if (!shadeLayer) return;
   const CIRCLE_SHADE_STOP_PCT = 63;
 
   shadeLayer.style.clipPath = "";
@@ -351,74 +351,24 @@ function setSafeGuideForShape() {
   safeGuide.style.borderRadius = shape === "circle" ? "999px" : "10px";
 }
 
-/* ---------- Maska narożników (SVG): czarne poza kształtem ---------- */
-let cornerMaskSvg = null;
-
-function roundedRectPath(x, y, w, h, r) {
-  // r w jednostkach viewBox
-  const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
-  const x0 = x, y0 = y, x1 = x + w, y1 = y + h;
-
-  return [
-    `M ${x0 + rr} ${y0}`,
-    `H ${x1 - rr}`,
-    `A ${rr} ${rr} 0 0 1 ${x1} ${y0 + rr}`,
-    `V ${y1 - rr}`,
-    `A ${rr} ${rr} 0 0 1 ${x1 - rr} ${y1}`,
-    `H ${x0 + rr}`,
-    `A ${rr} ${rr} 0 0 1 ${x0} ${y1 - rr}`,
-    `V ${y0 + rr}`,
-    `A ${rr} ${rr} 0 0 1 ${x0 + rr} ${y0}`,
-    "Z",
-  ].join(" ");
-}
-
-function circlePath(cx, cy, r) {
-  // pełne koło z dwóch łuków
-  return `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx} ${cy + r} A ${r} ${r} 0 1 1 ${cx} ${cy - r} Z`;
-}
-
-function ensureCornerMask() {
-  if (!clipLayer) return;
-  if (cornerMaskSvg) return;
-
-  cornerMaskSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  cornerMaskSvg.setAttribute("viewBox", "0 0 100 100");
-  cornerMaskSvg.setAttribute("preserveAspectRatio", "none");
-  cornerMaskSvg.style.width = "100%";
-  cornerMaskSvg.style.height = "100%";
-  cornerMaskSvg.style.display = "block";
-
-  clipLayer.innerHTML = "";
-  clipLayer.appendChild(cornerMaskSvg);
-}
-
+/* ---- Maska narożników (czarne poza kształtem produktu) ---- */
 function updateCornerMask() {
-  if (!clipLayer) return;
-  ensureCornerMask();
+  if (!clipLayer || !previewEl) return;
 
-  // tło poza kształtem = czarne (outer rect), dziura = shape (inner path) dzięki evenodd
-  const outer = "M 0 0 H 100 V 100 H 0 Z";
+  const w = previewEl.clientWidth;
+  const h = previewEl.clientHeight;
+  const size = Math.min(w, h);
 
-  let inner = "";
+  // R=5mm na 100mm => 5% boku
+  const rPx = Math.round(size * 0.05);
+
   if (shape === "circle") {
-    inner = circlePath(50, 50, 50);
+    clipLayer.style.borderRadius = "50%";
   } else {
-    // R=5% (na 10x10 cm: 5mm) => w viewBox 100x100 to r=5
-    inner = roundedRectPath(0, 0, 100, 100, 5);
+    clipLayer.style.borderRadius = `${rPx}px`;
   }
-
-  const d = `${outer} ${inner}`;
-
-  cornerMaskSvg.innerHTML = "";
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", d);
-  path.setAttribute("fill", "#000");
-  path.setAttribute("fill-rule", "evenodd");
-  cornerMaskSvg.appendChild(path);
 }
 
-/* ---------- Żółty ring (stabilny) ---------- */
 let dangerRingEl = null;
 function renderDangerOverlay() {
   if (!dangerLayer || !previewEl) return;
@@ -449,11 +399,13 @@ function renderDangerOverlay() {
   if (shape === "circle") {
     dangerRingEl.style.borderRadius = "9999px";
   } else {
+    // ring ma “miękkie” rogi, niezależnie od rogu produktu
     const innerR = 10;
     dangerRingEl.style.borderRadius = `${innerR + thickPx}px`;
   }
 }
 
+/* ---- Stabilizacja po reflow (miniatury / czcionki / layout) ---- */
 let resizeRaf = 0;
 
 function scheduleUiOverlaysRefresh() {
@@ -465,15 +417,12 @@ function scheduleUiOverlaysRefresh() {
   });
 }
 
-// 1) klasycznie: gdy zmienia się okno
 window.addEventListener("resize", scheduleUiOverlaysRefresh);
 
-// 2) kluczowe: gdy zmienia się rozmiar samego #preview (np. reflow po doładowaniu miniatur)
 if (window.ResizeObserver && previewEl) {
   const ro = new ResizeObserver(() => scheduleUiOverlaysRefresh());
   ro.observe(previewEl);
 }
-
 
 function setShape(next, opts = {}) {
   shape = next;
@@ -482,18 +431,16 @@ function setShape(next, opts = {}) {
   btnCircle.classList.toggle("active", shape === "circle");
 
   if (shape === "circle") {
-    cutGuide.style.borderRadius = "999px";
+    clipLayer.style.clipPath = "";
     setShadeCircle();
   } else {
-    cutGuide.style.borderRadius = "10px";
     setShadeSquare();
   }
 
   setSafeGuideForShape();
 
-  // Maska narożników + ring
-  updateCornerMask();
-  renderDangerOverlay();
+  // po ustawieniu shape przelicz maskę + ring
+  scheduleUiOverlaysRefresh();
 
   redraw();
   updateStatusBar();
@@ -1295,11 +1242,8 @@ if (btnSendToProduction) {
   updateStatusBar();
   pushHistory();
 
-  // po pierwszym renderze UI (żeby rozmiary były już policzone)
-  requestAnimationFrame(() => {
-    updateCornerMask();
-    renderDangerOverlay();
-  });
+  // po pierwszym renderze/układzie przelicz overlay jeszcze raz
+  requestAnimationFrame(() => scheduleUiOverlaysRefresh());
 })();
 
 // === KONIEC KODU — editor.js ===
