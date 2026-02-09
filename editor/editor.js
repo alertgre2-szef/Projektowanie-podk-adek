@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-12
+ * FILE_VERSION: 2026-02-09-13
  * - Self-test: twarda walidacja wymaganych elementów DOM
  * - Debug helpers: __CHECK_DOM__(), __CHECK_ENDPOINTS__()
  * - Produkcja: blokada UI + busy overlay + retry overlay
@@ -26,7 +26,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-12";
+const CACHE_VERSION = "2026-02-09-13";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -177,7 +177,7 @@ const finalOverlay = document.getElementById("finalOverlay");
 const finalOverlayTitle = document.getElementById("finalOverlayTitle");
 const finalOverlayMsg = document.getElementById("finalOverlayMsg");
 
-// Busy + Error overlays (nowe)
+// Busy + Error overlays
 const busyOverlay = document.getElementById("busyOverlay");
 const busyOverlayMsg = document.getElementById("busyOverlayMsg");
 
@@ -254,12 +254,8 @@ const MAX_USER_SCALE = 6.0;
 
 /* ===================== [DIRTY STATE] ===================== */
 let isDirty = false;
-function markDirty() {
-  isDirty = true;
-}
-function markClean() {
-  isDirty = false;
-}
+function markDirty() { isDirty = true; }
+function markClean() { isDirty = false; }
 
 function shouldWarnBeforeUnload() {
   if (productionLocked) return false;
@@ -271,7 +267,6 @@ function shouldWarnBeforeUnload() {
 window.addEventListener("beforeunload", (e) => {
   if (!shouldWarnBeforeUnload()) return;
   e.preventDefault();
-  // Chrome wymaga returnValue
   e.returnValue = "";
 });
 
@@ -997,7 +992,6 @@ function sanitizeOrderId(raw) {
   return safeFileToken(raw, "").slice(0, 60);
 }
 
-// debug szybki test PL
 window.__TEST_PL__ = () => ({
   v: CACHE_VERSION,
   in: "łoś Żółć ąęłńóśźż",
@@ -1056,6 +1050,9 @@ function setUiLocked(locked, busyMsg = "Trwa operacja…") {
 }
 
 function showFinalOverlay(title, msg) {
+  // KLUCZOWA NAPRAWA: busy overlay ma zniknąć po sukcesie
+  setBusyOverlay(false);
+
   if (!finalOverlay) {
     alert(`${title}\n\n${msg}`);
     return;
@@ -1069,6 +1066,8 @@ function showFinalOverlay(title, msg) {
 }
 
 function showErrorOverlay(title, msg) {
+  setBusyOverlay(false);
+
   if (!errorOverlay) {
     alert(`${title}\n\n${msg}`);
     return;
@@ -1321,12 +1320,8 @@ function dpiWarningText(dpi) {
     `To wynika z rozdzielczości oryginalnego zdjęcia i aktualnego powiększenia w edytorze.\n` +
     `Jeśli zaakceptujesz, wydruk może być mniej ostry/pikselowy.\n\n`;
 
-  if (dpi < DPI_WEAK_MAX) {
-    return common + "Czy mimo to chcesz wysłać projekt do realizacji?";
-  }
-  if (dpi < DPI_MED_MAX) {
-    return common + "Czy mimo to chcesz kontynuować wysyłkę?";
-  }
+  if (dpi < DPI_WEAK_MAX) return common + "Czy mimo to chcesz wysłać projekt do realizacji?";
+  if (dpi < DPI_MED_MAX) return common + "Czy mimo to chcesz kontynuować wysyłkę?";
   return null;
 }
 
@@ -1344,11 +1339,9 @@ async function sendToProduction(skipNickCheck = false) {
     return;
   }
 
-  // 1) Potwierdzenie ogólne
   const first = window.confirm("Czy na pewno chcesz wysłać projekt do realizacji?");
   if (!first) return;
 
-  // 2) Jeśli DPI słabe/średnie — dopiszemy informację (bez blokowania)
   const dpi = getEffectiveDpi();
   const dpiWarn = dpiWarningText(dpi);
   if (dpiWarn) {
@@ -1356,7 +1349,6 @@ async function sendToProduction(skipNickCheck = false) {
     if (!ok) return;
   }
 
-  // 3) Ostatnie „nie do cofnięcia”
   const second = window.confirm(
     "To ostatni krok.\n\nPo wysłaniu projekt trafia do produkcji i nie będzie można wprowadzić zmian.\n\nKontynuować?"
   );
@@ -1373,6 +1365,9 @@ async function sendToProduction(skipNickCheck = false) {
 
     markClean();
 
+    // KLUCZ: busy overlay ma zniknąć po sukcesie
+    setBusyOverlay(false);
+
     showFinalOverlay(
       "Wysłano do realizacji ✅",
       "Projekt został przekazany do produkcji. Zmiana nie będzie możliwa."
@@ -1381,6 +1376,7 @@ async function sendToProduction(skipNickCheck = false) {
     derr(err);
 
     setUiLocked(false);
+
     const msg =
       "Nie udało się wysłać projektu.\n\n" +
       "Sprawdź połączenie z internetem i spróbuj ponownie.\n\n" +
@@ -1404,7 +1400,6 @@ if (errorOverlayRetry) {
   errorOverlayRetry.addEventListener("click", (e) => {
     e.preventDefault();
     closeErrorOverlay();
-    // ponownie uruchamiamy standardową ścieżkę (z potwierdzeniami)
     sendToProduction(false);
   });
 }
@@ -1422,9 +1417,6 @@ if (errorOverlay) {
 
 /* ===================== [START] ===================== */
 (async function init() {
-  // jeśli chcesz szybko sprawdzić endpointy: dopisz ?debug=1 i odkomentuj:
-  // if (DEBUG) dlog(await checkEndpoints());
-
   await setShape("square", { skipHistory: true });
   clearTemplateSelection({ skipHistory: true });
 
@@ -1441,10 +1433,9 @@ if (errorOverlay) {
   updateStatusBar();
   pushHistory();
 
-  // init traktujemy jako clean
   markClean();
 
   dlog("Loaded", { CACHE_VERSION, DEBUG });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-12 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-13 === */
