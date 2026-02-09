@@ -1,4 +1,4 @@
-/* FILE_VERSION: 2026-02-09-02 */
+/* FILE_VERSION: 2026-02-09-04 */
 /* === RESET === */
 
 * {
@@ -48,7 +48,6 @@ body {
 .previewWrap { flex: 1; min-width: 320px; }
 
 /* === TOOLBAR + STATUS === */
-
 .previewToolbar {
   width: 100%;
   max-width: 560px;
@@ -74,7 +73,6 @@ body {
 }
 
 /* === PODGLĄD === */
-
 .preview {
   width: 100%;
   max-width: 560px;
@@ -94,6 +92,7 @@ body {
   z-index: 1;
 }
 
+/* MASKA PNG */
 .maskOverlay {
   position: absolute;
   inset: 0;
@@ -107,7 +106,6 @@ body {
 }
 
 /* === PASEK OSTRZEGAWCZY === */
-
 .dangerNote {
   max-width: 560px;
   margin-top: 8px;
@@ -121,7 +119,6 @@ body {
 }
 
 /* Informacje */
-
 .hint {
   margin-top: 10px;
   font-size: 12px;
@@ -129,7 +126,6 @@ body {
 }
 
 /* Panel */
-
 .panel {
   flex: 1;
   min-width: 280px;
@@ -162,8 +158,7 @@ input[type="file"], input[type="text"] {
   background: #fff;
 }
 
-/* Buttons */
-
+/* Przyciski */
 .btn {
   width: 100%;
   margin-top: 8px;
@@ -200,8 +195,7 @@ input[type="file"], input[type="text"] {
   border-color: #d1d5db;
 }
 
-/* Templates */
-
+/* Szablony */
 .templateGrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -234,8 +228,174 @@ input[type="file"], input[type="text"] {
   background: #fff;
 }
 
-/* Mobile */
+/* ========================= */
+/* TOAST — NAD WSZYSTKIM + JAŚNIEJSZY */
+/* ========================= */
+.toastContainer {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 8px;
 
+  /* było 9999 — teraz nad modalami */
+  z-index: 25000;
+
+  pointer-events: none;
+  width: min(560px, calc(100% - 24px));
+}
+
+.toast {
+  pointer-events: none;
+  padding: 10px 12px;
+  border-radius: 12px;
+
+  /* jaśniejsze i czytelniejsze */
+  background: rgba(255,255,255,0.96);
+  color: #111827;
+  border: 1px solid rgba(17,24,39,0.12);
+
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  position: relative;
+  padding-right: 34px;
+}
+
+.toastClose{
+  position:absolute; right:8px; top:6px;
+  width:22px; height:22px;
+  border:0; border-radius:999px;
+
+  background: rgba(17,24,39,0.10);
+  color:#111827;
+
+  font-size:16px; line-height:22px;
+  cursor:pointer;
+  pointer-events:auto;
+}
+.toastClose:hover{ background: rgba(17,24,39,0.16); }
+
+/* ========================= */
+/* MODAL: nick */
+/* ========================= */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 20000;
+}
+
+.modalCard {
+  width: min(460px, calc(100vw - 32px));
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  border: 1px solid #e5e7eb;
+  padding: 14px;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.modalTitle {
+  font-weight: 800;
+  font-size: 15px;
+  color: #111827;
+}
+
+/* X ma zniknąć */
+.modalClose {
+  display: none !important;
+}
+
+.modalBody {
+  display: grid;
+  gap: 10px;
+}
+
+.modalText {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.35;
+}
+
+.modalHint {
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+.modalFooter {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+#nickModalSave {
+  order: 1;
+  margin-top: 0;
+}
+
+#nickModalCancel {
+  order: 2;
+  margin-top: 14px;
+  opacity: 0.75;
+  border-color: #e5e7eb;
+  color: #374151;
+}
+#nickModalCancel:hover {
+  opacity: 0.9;
+}
+
+/* ========================= */
+/* FINAL OVERLAY */
+/* ========================= */
+.finalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.60);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 21000;
+}
+
+.finalCard {
+  width: min(520px, calc(100vw - 32px));
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  border: 1px solid #e5e7eb;
+  padding: 16px;
+  text-align: center;
+}
+
+.finalTitle {
+  font-weight: 900;
+  font-size: 18px;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.finalMsg {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.35;
+}
+
+/* Mobile */
 @media (max-width: 768px) {
   .preview,
   .previewToolbar,
@@ -243,6 +403,7 @@ input[type="file"], input[type="text"] {
   .dangerNote {
     max-width: 100%;
   }
-
   .templateGrid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* === KONIEC PLIKU — editor/style.css === */
