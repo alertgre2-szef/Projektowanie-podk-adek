@@ -1,8 +1,8 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-07
- * - Fix: sanitize nicka -> zostawia polskie znaki (bez \p{L})
+ * FILE_VERSION: 2026-02-09-08
+ * - Fix: sanitize nicka -> NIE gubi polskich znaków (bez literałów PL, bez \p{L})
  * ============================================================
  */
 
@@ -22,7 +22,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-07";
+const CACHE_VERSION = "2026-02-09-08";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -244,11 +244,8 @@ function maybeWarnQuality(force = false) {
   if (!force && level <= qualityWarnLevel) return;
   qualityWarnLevel = level;
 
-  if (level === 2) {
-    toast(`Uwaga: jakość może być słaba (ok. ${Math.round(dpi)} DPI).`);
-  } else if (level === 1) {
-    toast(`Uwaga: zdjęcie ma średnią jakość (ok. ${Math.round(dpi)} DPI).`);
-  }
+  if (level === 2) toast(`Uwaga: jakość może być słaba (ok. ${Math.round(dpi)} DPI).`);
+  else if (level === 1) toast(`Uwaga: zdjęcie ma średnią jakość (ok. ${Math.round(dpi)} DPI).`);
 }
 
 function updateStatusBar() {
@@ -822,31 +819,30 @@ function clearTemplateSelection(opts = {}) {
 
 /* ===================== [SEKCJA 8] EKSPORT / SANITIZE ===================== */
 /**
- * Bezpieczna nazwa: zostawiamy litery/cyfry + spacja . _ - oraz PL znaki.
- * (bez Unicode property escapes, żeby działało wszędzie)
+ * Kluczowy fix:
+ * - pozwalamy na litery z zakresów Latin-1 + Latin Extended + dodatki (bez \p{L})
+ * - zero literałów "ąćęł..." w regexie (odpornie na kodowanie pliku)
  */
-function sanitizeNickPl(raw, fallback = "projekt") {
+const SAFE_LETTERS_RX = /[^0-9A-Za-z\u00C0-\u024F\u1E00-\u1EFF\s._-]+/g;
+
+function sanitizeNick(raw, fallback = "projekt") {
   let s = String(raw || "").trim();
   if (!s) return fallback;
 
   s = s.normalize("NFC");
-
-  // usuń znaki niebezpieczne, zostaw: A-Z a-z 0-9, spacje, ._- oraz PL: ĄĆĘŁŃÓŚŹŻ i małe
-  s = s.replace(/[^0-9A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż\s._-]+/g, "");
-
+  s = s.replace(SAFE_LETTERS_RX, "");
   s = s.replace(/\s+/g, "_").replace(/_+/g, "_");
-
   s = s.slice(0, 60);
+
   return s || fallback;
 }
 
 function sanitizeFileBase(raw) {
-  return sanitizeNickPl(raw, "projekt");
+  return sanitizeNick(raw, "projekt");
 }
 
 function sanitizeOrderId(raw) {
-  // order_id: też zostawiamy PL znaki (jak wyżej), tylko fallback pusty
-  return sanitizeNickPl(raw, "").slice(0, 60);
+  return sanitizeNick(raw, "").slice(0, 60);
 }
 
 if (btnDownloadPreview) {
@@ -963,7 +959,7 @@ function renderProductionJpgBlob() {
 }
 
 function buildProjectJson() {
-  const nick = (nickInput?.value || "").trim(); // tu zostaje ORYGINAŁ (z polskimi znakami)
+  const nick = (nickInput?.value || "").trim(); // oryginał z PL znakami
   const dpi = getEffectiveDpi();
   return JSON.stringify(
     {
@@ -1183,4 +1179,4 @@ if (btnSendToProduction) {
   pushHistory();
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-07 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-08 === */
