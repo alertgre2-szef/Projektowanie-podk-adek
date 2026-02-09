@@ -1,7 +1,9 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * * FILE_VERSION: 2026-02-09-02
+ * FILE_VERSION: 2026-02-09-03
+ * - Walidacja wysyłki: zdjęcie + nick
+ * - Brak nicka: modal (fallback toast+focus)
  * ============================================================
  */
 
@@ -21,7 +23,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-02";
+const CACHE_VERSION = "2026-02-09-03";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -33,8 +35,10 @@ const MASK_URLS = {
   circle: `${REPO_BASE}/editor/assets/masks/mask_circle.png`,
 };
 
+/* ===================== [UPLOAD DO REALIZACJI] ===================== */
 const UPLOAD_ENDPOINT = `${REPO_BASE}/api/upload.php`;
-const UPLOAD_TOKEN = "4f9c7d2a8e1b5f63c0a9e72d41f8b6c39e5a0d7f1b2c8e4a6d9f3c1b7e0a2f5";
+const UPLOAD_TOKEN =
+  "4f9c7d2a8e1b5f63c0a9e72d41f8b6c39e5a0d7f1b2c8e4a6d9f3c1b7e0a2f5";
 
 /* ===================== [SEKCJA 2] DOM ===================== */
 const canvas = document.getElementById("canvas");
@@ -134,7 +138,7 @@ let offsetY = 0;
 const MIN_USER_SCALE = 1.0;
 const MAX_USER_SCALE = 6.0;
 
-/* ===================== [SEKCJA 3B] TOAST + STATUS ===================== */
+/* ===================== [SEKCJA 3B] TOAST + STATUS + HISTORIA + JAKOŚĆ ===================== */
 const TOAST_DEFAULT_MS = 10000;
 
 function toast(msg, ms = TOAST_DEFAULT_MS) {
@@ -195,6 +199,66 @@ function qualityLabelFromDpi(dpi) {
   return "Super";
 }
 
+function applyStatusBarQualityStyle(dpi) {
+  if (!statusBar) return;
+
+  let bg = "#f8fafc";
+  let border = "#e5e7eb";
+
+  if (dpi == null) {
+    bg = "#f8fafc";
+    border = "#e5e7eb";
+  } else if (dpi < DPI_WEAK_MAX) {
+    bg = "#ffe8e8";
+    border = "#f5b5b5";
+  } else if (dpi < DPI_MED_MAX) {
+    bg = "#fff6d6";
+    border = "#f1d08a";
+  } else if (dpi < DPI_GOOD_MAX) {
+    bg = "#e9fbe9";
+    border = "#9bd59b";
+  } else {
+    bg = "#ddf7e3";
+    border = "#6fcf8a";
+  }
+
+  statusBar.style.background = bg;
+  statusBar.style.borderColor = border;
+}
+
+let qualityWarnLevel = 0;
+
+function levelFromDpi(dpi) {
+  if (dpi == null) return 0;
+  if (dpi < DPI_WEAK_MAX) return 2;
+  if (dpi < DPI_MED_MAX) return 1;
+  return 0;
+}
+
+function maybeWarnQuality(force = false) {
+  if (!uploadedImg) return;
+
+  const dpi = getEffectiveDpi();
+  if (!dpi) return;
+
+  const level = levelFromDpi(dpi);
+  if (!force && level <= qualityWarnLevel) return;
+  qualityWarnLevel = level;
+
+  if (level === 2) {
+    toast(
+      `Uwaga: jakość może być słaba (ok. ${Math.round(dpi)} DPI). ` +
+        `Najlepiej wygląda zdjęcie z oryginału. ` +
+        `Komunikatory często pogarszają jakość przez kompresję.`
+    );
+  } else if (level === 1) {
+    toast(
+      `Uwaga: zdjęcie ma średnią jakość (ok. ${Math.round(dpi)} DPI). ` +
+        `Jeśli możesz, użyj oryginalnego pliku.`
+    );
+  }
+}
+
 function updateStatusBar() {
   if (!statusBar) return;
 
@@ -205,6 +269,8 @@ function updateStatusBar() {
 
   statusBar.textContent =
     `Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | DPI: ${dpiStr} | Jakość: ${q}`;
+
+  applyStatusBarQualityStyle(dpi);
 }
 
 /* ---- Undo/Redo (5 kroków) ---- */
@@ -238,14 +304,6 @@ function sameSnap(a, b) {
   );
 }
 
-function updateUndoRedoButtons() {
-  if (btnUndo) btnUndo.disabled = historyIndex <= 0;
-  if (btnRedo) btnRedo.disabled = historyIndex >= history.length - 1;
-
-  if (btnUndo) btnUndo.style.opacity = btnUndo.disabled ? "0.5" : "1";
-  if (btnRedo) btnRedo.style.opacity = btnRedo.disabled ? "0.5" : "1";
-}
-
 function pushHistory() {
   if (suppressHistory) return;
 
@@ -253,15 +311,21 @@ function pushHistory() {
   const last = history[historyIndex];
   if (last && sameSnap(last, snap)) return;
 
-  if (historyIndex < history.length - 1) {
-    history = history.slice(0, historyIndex + 1);
-  }
+  if (historyIndex < history.length - 1) history = history.slice(0, historyIndex + 1);
 
   history.push(snap);
 
   if (history.length > HISTORY_MAX) history.shift();
   historyIndex = history.length - 1;
   updateUndoRedoButtons();
+}
+
+function updateUndoRedoButtons() {
+  if (btnUndo) btnUndo.disabled = historyIndex <= 0;
+  if (btnRedo) btnRedo.disabled = historyIndex >= history.length - 1;
+
+  if (btnUndo) btnUndo.style.opacity = btnUndo.disabled ? "0.5" : "1";
+  if (btnRedo) btnRedo.style.opacity = btnRedo.disabled ? "0.5" : "1";
 }
 
 async function applyStateFromHistory(snap) {
@@ -414,6 +478,7 @@ if (photoInput) {
 
     img.onload = () => {
       uploadedImg = img;
+      qualityWarnLevel = 0;
 
       resetPhotoTransformToCover();
       redraw();
@@ -421,6 +486,8 @@ if (photoInput) {
       pushHistory();
 
       toast("Zdjęcie wgrane ✅");
+      maybeWarnQuality(true);
+
       URL.revokeObjectURL(url);
     };
 
@@ -471,6 +538,7 @@ function setUserScaleKeepingPoint(newUserScale, anchorPxX, anchorPxY) {
   applyClampToOffsets();
   redraw();
   updateStatusBar();
+  maybeWarnQuality(false);
 }
 
 function fitToCover() {
@@ -480,6 +548,7 @@ function fitToCover() {
   updateStatusBar();
   pushHistory();
   toast("Dopasowano kadr");
+  maybeWarnQuality(false);
 }
 
 function centerPhoto() {
@@ -599,6 +668,7 @@ function endPointer(e) {
       if (gestureMoved) pushHistory();
       gestureActive = false;
       gestureMoved = false;
+      maybeWarnQuality(false);
     }
   }
 
@@ -655,6 +725,22 @@ if (btnZoomOut) {
 
 if (btnUndo) btnUndo.addEventListener("click", undo);
 if (btnRedo) btnRedo.addEventListener("click", redo);
+
+window.addEventListener("keydown", (e) => {
+  const isMac = navigator.platform.toLowerCase().includes("mac");
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+
+  if (mod && !e.shiftKey && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    undo();
+    return;
+  }
+  if ((mod && e.shiftKey && e.key.toLowerCase() === "z") || (mod && e.key.toLowerCase() === "y")) {
+    e.preventDefault();
+    redo();
+    return;
+  }
+});
 
 /* ===================== [SEKCJA 7] SZABLONY ===================== */
 async function fetchJsonFirstOk(urls) {
@@ -778,9 +864,317 @@ if (btnDownloadPreview) {
   });
 }
 
-/* ===================== [SEND] (bez zmian w Twojej logice) ===================== */
-/* ... tu zostaje reszta Twojego kodu send/upload/modal ... */
-/* Żeby było krótko: wklej dalej swój blok od "let productionLocked" w dół bez zmian. */
+/* ===================== [SEKCJA 8B] WYŚLIJ DO REALIZACJI ===================== */
+let productionLocked = false;
+
+function setUiLocked(locked) {
+  productionLocked = locked;
+
+  const ids = [
+    "btnSquare", "btnCircle",
+    "btnUndo", "btnRedo",
+    "btnZoomOut", "btnZoomIn", "btnFit", "btnCenter",
+    "btnDownloadPreview",
+    "btnSendToProduction"
+  ];
+
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = locked;
+  });
+
+  if (photoInput) photoInput.disabled = locked;
+  if (nickInput) nickInput.disabled = locked;
+
+  if (templateGrid) {
+    templateGrid.querySelectorAll("button").forEach((b) => (b.disabled = locked));
+    templateGrid.style.opacity = locked ? "0.6" : "1";
+    templateGrid.style.pointerEvents = locked ? "none" : "auto";
+  }
+
+  if (canvas) canvas.style.opacity = locked ? "0.85" : "1";
+}
+
+function showFinalOverlay(title, msg) {
+  if (!finalOverlay) {
+    alert(`${title}\n\n${msg}`);
+    return;
+  }
+  if (finalOverlayTitle) finalOverlayTitle.textContent = title;
+  if (finalOverlayMsg) finalOverlayMsg.textContent = msg;
+
+  finalOverlay.style.display = "flex";
+  document.documentElement.style.overflow = "hidden";
+  document.body.style.overflow = "hidden";
+}
+
+function renderProductionWithPrintOverlayToBlob(mime, qualityOrNull) {
+  return new Promise((resolve, reject) => {
+    if (!uploadedImg) return reject(new Error("Brak zdjęcia"));
+
+    const finish = () => {
+      try {
+        canvas.toBlob(
+          (blob) => {
+            redraw();
+            if (!blob) return reject(new Error("Nie udało się wygenerować pliku"));
+            resolve(blob);
+          },
+          mime,
+          qualityOrNull == null ? undefined : qualityOrNull
+        );
+      } catch (e) {
+        redraw();
+        reject(e);
+      }
+    };
+
+    if (!currentTemplate) {
+      try {
+        clear();
+        drawPhotoTransformed(uploadedImg);
+        finish();
+      } catch (e) {
+        redraw();
+        reject(e);
+      }
+      return;
+    }
+
+    const printUrl = withV(templateFolderUrl(currentTemplate.id) + "print.png");
+    const printImg = new Image();
+    printImg.crossOrigin = "anonymous";
+
+    printImg.onload = () => {
+      try {
+        clear();
+        drawPhotoTransformed(uploadedImg);
+        ctx.drawImage(printImg, 0, 0, CANVAS_PX, CANVAS_PX);
+        finish();
+      } catch (e) {
+        redraw();
+        reject(e);
+      }
+    };
+
+    printImg.onerror = () => reject(new Error("Nie mogę wczytać print.png (do realizacji)"));
+    printImg.src = printUrl;
+  });
+}
+
+function renderProductionJpgBlob() {
+  return renderProductionWithPrintOverlayToBlob("image/jpeg", 1.0);
+}
+
+function buildProjectJson() {
+  const nick = (nickInput?.value || "").trim();
+  const dpi = getEffectiveDpi();
+  return JSON.stringify(
+    {
+      cache_version: CACHE_VERSION,
+      ts_iso: new Date().toISOString(),
+      nick,
+      shape,
+      template: currentTemplate ? { id: currentTemplate.id, name: currentTemplate.name || currentTemplate.id } : null,
+      transform: { coverScale, userScale, offsetX, offsetY },
+      dpi: dpi == null ? null : Math.round(dpi),
+      url: location.href
+    },
+    null,
+    2
+  );
+}
+
+function sanitizeOrderId(raw) {
+  return String(raw || "")
+    .trim()
+    .replace(/[^\w\-]+/g, "_")
+    .slice(0, 60);
+}
+
+async function uploadToServer(blob, jsonText, filename) {
+  const fd = new FormData();
+
+  const orderId = sanitizeOrderId(nickInput?.value || "");
+  if (orderId) fd.append("order_id", orderId);
+
+  fd.append("png", blob, filename);
+  fd.append("json", jsonText);
+
+  const res = await fetch(UPLOAD_ENDPOINT, {
+    method: "POST",
+    headers: { "X-Upload-Token": UPLOAD_TOKEN },
+    body: fd,
+  });
+
+  const txt = await res.text().catch(() => "");
+  if (!res.ok) throw new Error(`Upload HTTP ${res.status}: ${txt || "błąd"}`);
+
+  let data = null;
+  try { data = txt ? JSON.parse(txt) : null; } catch {}
+
+  if (data && data.ok === false) throw new Error(data.error || "Upload nieudany");
+  return data || { ok: true };
+}
+
+/* ===================== [MODAL NICK] ===================== */
+let pendingSendAfterNick = false;
+let lastFocusElBeforeModal = null;
+
+function focusNickFieldWithHint() {
+  const msg = "Uzupełnij podpis / nick (np. nazwisko lub nr zamówienia), aby wysłać projekt do realizacji.";
+  toast(msg);
+
+  if (nickInput) {
+    try { nickInput.focus({ preventScroll: true }); } catch { try { nickInput.focus(); } catch {} }
+    try { nickInput.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {}
+    nickInput.style.outline = "2px solid #f59e0b";
+    setTimeout(() => { nickInput.style.outline = ""; }, 1200);
+  } else {
+    alert(msg);
+  }
+}
+
+function openNickModal() {
+  if (!nickModal || !nickModalInput || !nickModalSave) {
+    focusNickFieldWithHint();
+    return;
+  }
+
+  pendingSendAfterNick = true;
+  lastFocusElBeforeModal = document.activeElement;
+
+  nickModal.style.display = "flex";
+  nickModal.setAttribute("aria-hidden", "false");
+
+  if (nickModalHint) nickModalHint.style.display = "none";
+
+  const current = (nickInput?.value || "").trim();
+  nickModalInput.value = current;
+  setTimeout(() => nickModalInput.focus(), 0);
+
+  document.documentElement.style.overflow = "hidden";
+  document.body.style.overflow = "hidden";
+}
+
+function closeNickModal() {
+  pendingSendAfterNick = false;
+  if (!nickModal) return;
+
+  const ae = document.activeElement;
+  if (ae && nickModal.contains(ae)) {
+    try { ae.blur(); } catch {}
+  }
+
+  nickModal.style.display = "none";
+  nickModal.setAttribute("aria-hidden", "true");
+
+  document.documentElement.style.overflow = "";
+  document.body.style.overflow = "";
+
+  setTimeout(() => {
+    if (nickInput) nickInput.focus();
+    else if (lastFocusElBeforeModal && typeof lastFocusElBeforeModal.focus === "function") {
+      lastFocusElBeforeModal.focus();
+    }
+  }, 0);
+}
+
+function confirmNickFromModal() {
+  const v = (nickModalInput?.value || "").trim();
+  if (!v) {
+    if (nickModalHint) nickModalHint.style.display = "block";
+    if (nickModalInput) {
+      nickModalInput.style.borderColor = "#ef4444";
+      nickModalInput.focus();
+    }
+    return;
+  }
+
+  if (nickInput) nickInput.value = v;
+  if (nickModalInput) nickModalInput.style.borderColor = "#e5e7eb";
+
+  closeNickModal();
+
+  if (pendingSendAfterNick) {
+    pendingSendAfterNick = false;
+    sendToProduction(true);
+  }
+}
+
+if (nickModalClose) nickModalClose.addEventListener("click", closeNickModal);
+if (nickModalCancel) nickModalCancel.addEventListener("click", closeNickModal);
+if (nickModalSave) nickModalSave.addEventListener("click", confirmNickFromModal);
+
+if (nickModal) {
+  nickModal.addEventListener("click", (e) => {
+    if (e.target === nickModal) closeNickModal();
+  });
+}
+
+window.addEventListener("keydown", (e) => {
+  if (!nickModal || nickModal.style.display !== "flex") return;
+
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeNickModal();
+    return;
+  }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    confirmNickFromModal();
+    return;
+  }
+});
+
+/* ===================== [SEND] ===================== */
+async function sendToProduction(skipNickCheck = false) {
+  if (productionLocked) return;
+
+  // 1) zdjęcie
+  if (!uploadedImg) {
+    toast("Najpierw wgraj zdjęcie.");
+    return;
+  }
+
+  // 2) nick
+  const nick = (nickInput?.value || "").trim();
+  if (!skipNickCheck && !nick) {
+    openNickModal();
+    return;
+  }
+
+  // 3) potwierdzenia
+  const first = window.confirm("Czy na pewno chcesz wysłać projekt do realizacji?");
+  if (!first) return;
+
+  const second = window.confirm(
+    "To ostatni krok.\n\nPo wysłaniu projekt trafia do produkcji i nie będzie można wprowadzić zmian.\n\nKontynuować?"
+  );
+  if (!second) return;
+
+  setUiLocked(true);
+  toast("Wysyłanie do realizacji…");
+
+  try {
+    const jsonText = buildProjectJson();
+    const jpgBlob = await renderProductionJpgBlob();
+    await uploadToServer(jpgBlob, jsonText, "projekt_PRINT.jpg");
+
+    showFinalOverlay(
+      "Wysłano do realizacji ✅",
+      "Projekt został przekazany do produkcji. Zmiana nie będzie możliwa."
+    );
+  } catch (err) {
+    console.error(err);
+    toast("Błąd wysyłania. Spróbuj ponownie albo skontaktuj się z obsługą.");
+    setUiLocked(false);
+  }
+}
+
+if (btnSendToProduction) {
+  btnSendToProduction.addEventListener("click", () => sendToProduction(false));
+}
 
 /* ===================== [SEKCJA 9] START ===================== */
 (async function init() {
