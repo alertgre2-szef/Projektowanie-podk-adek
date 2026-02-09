@@ -1,10 +1,10 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-17
- * - Export: blokada podglądu bez wgranego zdjęcia
- * - UI: spójne odświeżanie enabled/disabled dla eksportu
- * - Theme/Rotate/JSON: jak w poprzedniej wersji
+ * FILE_VERSION: 2026-02-09-18
+ * - Kłódka kadru: możliwość swobodnego przesuwania zdjęcia poza kadr (po ostrzeżeniu)
+ * - Historia: zapisuje stan kłódki
+ * - Reszta: jak poprzednio (theme/rotate/json/UX)
  * ============================================================
  */
 
@@ -24,7 +24,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-17";
+const CACHE_VERSION = "2026-02-09-18";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -38,12 +38,8 @@ const DEBUG =
   (typeof location !== "undefined" && (location.search || "").includes("debug=1")) ||
   (typeof localStorage !== "undefined" && localStorage.getItem("EDITOR_DEBUG") === "1");
 
-function dlog(...args) {
-  if (DEBUG) console.log("[EDITOR]", ...args);
-}
-function derr(...args) {
-  console.error("[EDITOR]", ...args);
-}
+function dlog(...args) { if (DEBUG) console.log("[EDITOR]", ...args); }
+function derr(...args) { console.error("[EDITOR]", ...args); }
 
 /* ===================== [THEME] ===================== */
 const THEME_KEY = "EDITOR_THEME"; // "light" | "dark"
@@ -53,17 +49,12 @@ function getQueryParam(name) {
     const sp = new URLSearchParams(location.search || "");
     const v = sp.get(name);
     return (v || "").trim();
-  } catch {
-    return "";
-  }
+  } catch { return ""; }
 }
 
 function systemPrefersDark() {
-  try {
-    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  } catch {
-    return false;
-  }
+  try { return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches; }
+  catch { return false; }
 }
 
 function normalizeTheme(v) {
@@ -89,17 +80,11 @@ function applyTheme(theme, { persist = true } = {}) {
 
 function initTheme() {
   const fromUrl = normalizeTheme(getQueryParam("theme"));
-  if (fromUrl) {
-    applyTheme(fromUrl, { persist: true });
-    return;
-  }
+  if (fromUrl) { applyTheme(fromUrl, { persist: true }); return; }
 
   let fromStorage = "";
   try { fromStorage = normalizeTheme(localStorage.getItem(THEME_KEY)); } catch {}
-  if (fromStorage) {
-    applyTheme(fromStorage, { persist: false });
-    return;
-  }
+  if (fromStorage) { applyTheme(fromStorage, { persist: false }); return; }
 
   applyTheme(systemPrefersDark() ? "dark" : "light", { persist: false });
 }
@@ -115,34 +100,24 @@ function wireThemeButtons() {
 function _parseHashParams() {
   const h = (location.hash || "").replace(/^#/, "").trim();
   if (!h) return new URLSearchParams();
-  try {
-    return new URLSearchParams(h.includes("=") ? h : "");
-  } catch {
-    return new URLSearchParams();
-  }
+  try { return new URLSearchParams(h.includes("=") ? h : ""); }
+  catch { return new URLSearchParams(); }
 }
 
 function getUrlParamAny(keys) {
   const sp = new URLSearchParams(location.search || "");
   const hp = _parseHashParams();
-
   for (const k of keys) {
     const v1 = sp.get(k);
     if (typeof v1 === "string" && v1.trim()) return v1.trim();
-
     const v2 = hp.get(k);
     if (typeof v2 === "string" && v2.trim()) return v2.trim();
   }
   return "";
 }
 
-function getNickFromUrl() {
-  return getUrlParamAny(["nick", "n", "order", "order_id"]);
-}
-
-function getOrderIdFromUrl() {
-  return getUrlParamAny(["order_id", "order"]);
-}
+function getNickFromUrl() { return getUrlParamAny(["nick", "n", "order", "order_id"]); }
+function getOrderIdFromUrl() { return getUrlParamAny(["order_id", "order"]); }
 
 /**
  * Self-test: wymagane elementy DOM (krytyczne do działania).
@@ -197,9 +172,7 @@ const UPLOAD_TOKEN = "4f9c7d2a8e1b5f63c0a9e72d41f8b6c39e5a0d7f1b2c8e4a6d9f3c1b7e
 
 /* ===================== [SEKCJA 2] DOM ===================== */
 const domReport = checkRequiredDom();
-if (!domReport.ok) {
-  throw new Error("Missing required DOM elements: " + domReport.missing.join(", "));
-}
+if (!domReport.ok) throw new Error("Missing required DOM elements: " + domReport.missing.join(", "));
 
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
@@ -226,6 +199,8 @@ const btnCenter = document.getElementById("btnCenter");
 const btnRotateLeft = document.getElementById("btnRotateLeft");
 const btnRotateRight = document.getElementById("btnRotateRight");
 const btnRotateReset = document.getElementById("btnRotateReset");
+
+const btnFreeMove = document.getElementById("btnFreeMove");
 
 const btnSendToProduction = document.getElementById("btnSendToProduction");
 
@@ -342,6 +317,9 @@ function degToRad(d) { return (d * Math.PI) / 180; }
 const MIN_USER_SCALE = 1.0;
 const MAX_USER_SCALE = 6.0;
 
+// kłódka kadru
+let freeMove = false; // false = clamp (bezpiecznie), true = swobodnie
+
 /* ===================== [DIRTY STATE] ===================== */
 let isDirty = false;
 function markDirty() { isDirty = true; }
@@ -397,9 +375,7 @@ function toast(msg, ms = TOAST_DEFAULT_MS) {
   timer = window.setTimeout(() => removeToast(), ms);
 }
 
-function fmtZoomPct() {
-  return `${Math.round(userScale * 100)}%`;
-}
+function fmtZoomPct() { return `${Math.round(userScale * 100)}%`; }
 
 function templateName() {
   if (!currentTemplate) return "—";
@@ -427,22 +403,11 @@ function applyStatusBarQualityStyle(dpi) {
   let bg = "#f8fafc";
   let border = "#e5e7eb";
 
-  if (dpi == null) {
-    bg = "#f8fafc";
-    border = "#e5e7eb";
-  } else if (dpi < DPI_WEAK_MAX) {
-    bg = "#ffe8e8";
-    border = "#f5b5b5";
-  } else if (dpi < DPI_MED_MAX) {
-    bg = "#fff6d6";
-    border = "#f1d08a";
-  } else if (dpi < DPI_GOOD_MAX) {
-    bg = "#e9fbe9";
-    border = "#9bd59b";
-  } else {
-    bg = "#ddf7e3";
-    border = "#6fcf8a";
-  }
+  if (dpi == null) { bg = "#f8fafc"; border = "#e5e7eb"; }
+  else if (dpi < DPI_WEAK_MAX) { bg = "#ffe8e8"; border = "#f5b5b5"; }
+  else if (dpi < DPI_MED_MAX) { bg = "#fff6d6"; border = "#f1d08a"; }
+  else if (dpi < DPI_GOOD_MAX) { bg = "#e9fbe9"; border = "#9bd59b"; }
+  else { bg = "#ddf7e3"; border = "#6fcf8a"; }
 
   statusBar.style.background = bg;
   statusBar.style.borderColor = border;
@@ -478,11 +443,11 @@ function updateStatusBar() {
   const dpi = getEffectiveDpi();
   const dpiStr = dpi == null ? "—" : `${Math.round(dpi)}`;
   const q = qualityLabelFromDpi(dpi);
-
   const rot = rotationDeg ? `${rotationDeg}°` : "0°";
+  const lockStr = freeMove ? "Swobodny" : "Zablokowany";
 
   statusBar.textContent =
-    `Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | Obrót: ${rot} | DPI: ${dpiStr} | Jakość: ${q}`;
+    `Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | Obrót: ${rot} | Kadr: ${lockStr} | DPI: ${dpiStr} | Jakość: ${q}`;
 
   applyStatusBarQualityStyle(dpi);
 }
@@ -491,8 +456,49 @@ function updateStatusBar() {
 function refreshExportButtons() {
   const hasPhoto = !!uploadedImg;
   if (btnDownloadPreview) btnDownloadPreview.disabled = !hasPhoto || productionLocked;
-  // send button jest blokowany w setUiLocked, ale zostawiamy spójność:
   if (btnSendToProduction) btnSendToProduction.disabled = productionLocked;
+}
+
+/* ===================== [KŁÓDKA KADRU] ===================== */
+function syncFreeMoveButton() {
+  if (!btnFreeMove) return;
+  // freeMove=true => odblokowane => ikona 🔓
+  btnFreeMove.classList.toggle("active", freeMove === true);
+  btnFreeMove.setAttribute("aria-pressed", freeMove ? "true" : "false");
+  btnFreeMove.textContent = freeMove ? "🔓 Kadr" : "🔒 Kadr";
+}
+
+function setFreeMove(next, { silent = false, skipHistory = false } = {}) {
+  const n = !!next;
+
+  if (n === true && freeMove === false && !silent) {
+    const ok = window.confirm(
+      "Odblokować kadr?\n\n" +
+      "To pozwala przesuwać zdjęcie poza obszar projektu (przy ramkach może pomóc ustawić twarze w okienku).\n\n" +
+      "UWAGA: możesz przypadkowo ustawić zdjęcie tak, że w druku wyjdą puste/białe pola albo ważne elementy wypadną.\n\n" +
+      "Kontynuować?"
+    );
+    if (!ok) return;
+    toast("Kadr odblokowany — możesz przesuwać swobodnie. ⚠️");
+  }
+
+  freeMove = n;
+  syncFreeMoveButton();
+
+  // Po ponownym zablokowaniu — natychmiast dociskamy do bezpiecznego zakresu
+  if (!freeMove) applyClampToOffsets();
+
+  redraw();
+  updateStatusBar();
+
+  if (!skipHistory) pushHistory();
+  if (!skipHistory) markDirty();
+}
+
+if (btnFreeMove) {
+  btnFreeMove.addEventListener("click", () => {
+    setFreeMove(!freeMove);
+  });
 }
 
 /* ---- Undo/Redo (5 kroków) ---- */
@@ -501,9 +507,7 @@ let history = [];
 let historyIndex = -1;
 let suppressHistory = false;
 
-function clamp(v, a, b) {
-  return Math.max(a, Math.min(b, v));
-}
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
 function snapshot() {
   return {
@@ -512,6 +516,7 @@ function snapshot() {
     offsetX,
     offsetY,
     rotationDeg,
+    freeMove,
     templateId: currentTemplate ? currentTemplate.id : null,
   };
 }
@@ -524,6 +529,7 @@ function sameSnap(a, b) {
     a.offsetX === b.offsetX &&
     a.offsetY === b.offsetY &&
     a.rotationDeg === b.rotationDeg &&
+    a.freeMove === b.freeMove &&
     a.templateId === b.templateId
   );
 }
@@ -569,11 +575,16 @@ async function applyStateFromHistory(snap) {
   rotationDeg = normDeg(snap.rotationDeg);
   ensureCoverScaleForRotation();
 
+  freeMove = !!snap.freeMove;
+  syncFreeMoveButton();
+
   userScale = clamp(snap.userScale, MIN_USER_SCALE, MAX_USER_SCALE);
   offsetX = snap.offsetX;
   offsetY = snap.offsetY;
 
-  applyClampToOffsets();
+  // jeśli zablokowane — dociśnij
+  if (!freeMove) applyClampToOffsets();
+
   redraw();
   updateStatusBar();
 
@@ -639,6 +650,7 @@ function ensureCoverScaleForRotation() {
 
 function applyClampToOffsets() {
   if (!uploadedImg) return;
+  if (freeMove) return; // KLUCZ: odblokowany kadr => bez clamp
 
   const iw = uploadedImg.naturalWidth;
   const ih = uploadedImg.naturalHeight;
@@ -711,6 +723,10 @@ function resetPhotoTransformToCover() {
   offsetX = 0;
   offsetY = 0;
 
+  // powrót do bezpiecznego trybu po wgraniu zdjęcia
+  freeMove = false;
+  syncFreeMoveButton();
+
   applyClampToOffsets();
 }
 
@@ -747,10 +763,7 @@ if (photoInput) {
 
 /* ===================== [OBRÓT] ===================== */
 function setRotation(nextDeg, opts = {}) {
-  if (!uploadedImg) {
-    toast("Najpierw wgraj zdjęcie.");
-    return;
-  }
+  if (!uploadedImg) { toast("Najpierw wgraj zdjęcie."); return; }
 
   rotationDeg = normDeg(nextDeg);
   ensureCoverScaleForRotation();
@@ -802,7 +815,11 @@ function fitToCover() {
   userScale = 1.0;
   offsetX = 0;
   offsetY = 0;
-  applyClampToOffsets();
+
+  // w trybie swobodnym też nie clampujemy (zgodnie z ideą),
+  // ale "Dopasuj" ma sens jako szybki reset do środka:
+  if (!freeMove) applyClampToOffsets();
+
   redraw();
   updateStatusBar();
   pushHistory();
@@ -815,7 +832,9 @@ function centerPhoto() {
   if (!uploadedImg) return;
   offsetX = 0;
   offsetY = 0;
-  applyClampToOffsets();
+
+  if (!freeMove) applyClampToOffsets();
+
   redraw();
   updateStatusBar();
   pushHistory();
@@ -995,9 +1014,7 @@ async function fetchJsonFirstOk(urls) {
       const res = await fetch(withV(u), { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
-    } catch (e) {
-      lastErr = e;
-    }
+    } catch (e) { lastErr = e; }
   }
   throw lastErr || new Error("Brak źródła JSON");
 }
@@ -1108,13 +1125,8 @@ function safeFileToken(raw, fallback = "projekt") {
   return s || fallback;
 }
 
-function sanitizeFileBase(raw) {
-  return safeFileToken(raw, "projekt");
-}
-
-function sanitizeOrderId(raw) {
-  return safeFileToken(raw, "").slice(0, 60);
-}
+function sanitizeFileBase(raw) { return safeFileToken(raw, "projekt"); }
+function sanitizeOrderId(raw) { return safeFileToken(raw, "").slice(0, 60); }
 
 if (btnDownloadPreview) {
   btnDownloadPreview.addEventListener("click", () => {
@@ -1149,6 +1161,7 @@ function setUiLocked(locked, busyMsg = "Trwa operacja…") {
     "btnUndo", "btnRedo",
     "btnZoomOut", "btnZoomIn", "btnFit", "btnCenter",
     "btnRotateLeft", "btnRotateRight", "btnRotateReset",
+    "btnFreeMove",
     "btnThemeLight", "btnThemeDark",
     "btnDownloadPreview",
     "btnSendToProduction"
@@ -1319,6 +1332,7 @@ function buildProjectJson() {
       offsetX: roundNum(offsetX, 3),
       offsetY: roundNum(offsetY, 3),
       rotation_deg: rotationDeg,
+      free_move: freeMove,
       canvas_px: CANVAS_PX,
       print_dpi: PRINT_DPI,
       cut_ratio: CUT_RATIO,
@@ -1515,6 +1529,16 @@ async function sendToProduction(skipNickCheck = false) {
   const first = window.confirm("Czy na pewno chcesz wysłać projekt do realizacji?");
   if (!first) return;
 
+  // dodatkowe ostrzeżenie, jeśli kadr odblokowany
+  if (freeMove) {
+    const ok = window.confirm(
+      "Uwaga: kadr jest odblokowany (swobodne przesuwanie).\n\n" +
+      "Upewnij się, że w okienku szablonu nie ma pustych/białych pól i że ważne elementy nie wypadają.\n\n" +
+      "Kontynuować?"
+    );
+    if (!ok) return;
+  }
+
   const dpi = getEffectiveDpi();
   const dpiWarn = dpiWarningText(dpi);
   if (dpiWarn) {
@@ -1592,10 +1616,11 @@ if (errorOverlay) {
   updateUiVersionBadge();
   applyNickFromUrlIfEmpty();
 
+  syncFreeMoveButton();
+
   await setShape("square", { skipHistory: true });
   clearTemplateSelection({ skipHistory: true });
 
-  // Na starcie: brak zdjęcia => eksport ma być zablokowany
   refreshExportButtons();
 
   try {
@@ -1615,4 +1640,4 @@ if (errorOverlay) {
   dlog("Loaded", { CACHE_VERSION, DEBUG });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-17 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-18 === */
