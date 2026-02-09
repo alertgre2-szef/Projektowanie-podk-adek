@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Edytor podkładki</title>
 
-  <link rel="stylesheet" href="./style.css?v=2026-02-09-09" />
+  <link rel="stylesheet" href="./style.css?v=2026-02-09-12" />
 </head>
 <body>
   <div class="app">
@@ -121,6 +121,27 @@
     </div>
   </div>
 
+  <!-- BUSY OVERLAY -->
+  <div id="busyOverlay" class="busyOverlay" style="display:none;">
+    <div class="busyCard" role="dialog" aria-modal="true" aria-label="Trwa operacja">
+      <div class="busySpinner" aria-hidden="true"></div>
+      <div id="busyOverlayMsg" class="busyMsg">Trwa wysyłanie…</div>
+      <div class="busySub">Nie zamykaj strony.</div>
+    </div>
+  </div>
+
+  <!-- ERROR OVERLAY (retry) -->
+  <div id="errorOverlay" class="errorOverlay" style="display:none;">
+    <div class="errorCard" role="dialog" aria-modal="true" aria-labelledby="errorOverlayTitle">
+      <div id="errorOverlayTitle" class="errorTitle">Błąd</div>
+      <div id="errorOverlayMsg" class="errorMsg">Nie udało się wysłać.</div>
+      <div class="errorActions">
+        <button id="errorOverlayRetry" class="btn" type="button">Spróbuj ponownie</button>
+        <button id="errorOverlayClose" class="btn secondary" type="button">Zamknij</button>
+      </div>
+    </div>
+  </div>
+
   <div id="finalOverlay" class="finalOverlay" style="display:none;">
     <div class="finalCard" role="dialog" aria-modal="true" aria-labelledby="finalOverlayTitle">
       <div id="finalOverlayTitle" class="finalTitle">Wysłano ✅</div>
@@ -128,7 +149,7 @@
     </div>
   </div>
 
-  <script src="./editor.js?v=2026-02-09-11" defer></script>
+  <script src="./editor.js?v=2026-02-09-12" defer></script>
 
   <script>
     window.addEventListener("DOMContentLoaded", () => {
@@ -143,4 +164,4 @@
 </body>
 </html>
 
-<!-- === KONIEC PLIKU — editor/index.html | FILE_VERSION: 2026-02-09-07 === -->
+<!-- === KONIEC PLIKU — editor/index.html | FILE_VERSION: 2026-02-09-12 === -->
