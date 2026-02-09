@@ -1,9 +1,12 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-11
+ * FILE_VERSION: 2026-02-09-12
  * - Self-test: twarda walidacja wymaganych elementów DOM
  * - Debug helpers: __CHECK_DOM__(), __CHECK_ENDPOINTS__()
+ * - Produkcja: blokada UI + busy overlay + retry overlay
+ * - UX: ostrzeżenie przy opuszczeniu strony (dirty state)
+ * - DPI: informacja w potwierdzeniach wysyłki (bez blokowania)
  * ============================================================
  */
 
@@ -23,7 +26,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-11";
+const CACHE_VERSION = "2026-02-09-12";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -174,6 +177,16 @@ const finalOverlay = document.getElementById("finalOverlay");
 const finalOverlayTitle = document.getElementById("finalOverlayTitle");
 const finalOverlayMsg = document.getElementById("finalOverlayMsg");
 
+// Busy + Error overlays (nowe)
+const busyOverlay = document.getElementById("busyOverlay");
+const busyOverlayMsg = document.getElementById("busyOverlayMsg");
+
+const errorOverlay = document.getElementById("errorOverlay");
+const errorOverlayTitle = document.getElementById("errorOverlayTitle");
+const errorOverlayMsg = document.getElementById("errorOverlayMsg");
+const errorOverlayRetry = document.getElementById("errorOverlayRetry");
+const errorOverlayClose = document.getElementById("errorOverlayClose");
+
 // MODAL nick (opcjonalne)
 const nickModal = document.getElementById("nickModal");
 const nickModalInput = document.getElementById("nickModalInput");
@@ -238,6 +251,29 @@ let offsetY = 0;
 
 const MIN_USER_SCALE = 1.0;
 const MAX_USER_SCALE = 6.0;
+
+/* ===================== [DIRTY STATE] ===================== */
+let isDirty = false;
+function markDirty() {
+  isDirty = true;
+}
+function markClean() {
+  isDirty = false;
+}
+
+function shouldWarnBeforeUnload() {
+  if (productionLocked) return false;
+  if (!isDirty) return false;
+  if (finalOverlay && finalOverlay.style.display === "flex") return false;
+  return true;
+}
+
+window.addEventListener("beforeunload", (e) => {
+  if (!shouldWarnBeforeUnload()) return;
+  e.preventDefault();
+  // Chrome wymaga returnValue
+  e.returnValue = "";
+});
 
 /* ===================== [SEKCJA 3B] TOAST + STATUS + HISTORIA + JAKOŚĆ ===================== */
 const TOAST_DEFAULT_MS = 10000;
@@ -449,12 +485,14 @@ async function undo() {
   if (historyIndex <= 0) return;
   historyIndex--;
   await applyStateFromHistory(history[historyIndex]);
+  markDirty();
 }
 
 async function redo() {
   if (historyIndex >= history.length - 1) return;
   historyIndex++;
   await applyStateFromHistory(history[historyIndex]);
+  markDirty();
 }
 
 /* ===================== [SEKCJA 4] KSZTAŁT ===================== */
@@ -470,6 +508,7 @@ async function setShape(next, opts = {}) {
   updateStatusBar();
 
   if (!opts.skipHistory) pushHistory();
+  if (!opts.skipHistory) markDirty();
 }
 
 if (btnSquare) btnSquare.addEventListener("click", () => setShape("square"));
@@ -579,6 +618,8 @@ if (photoInput) {
       toast("Zdjęcie wgrane ✅");
       maybeWarnQuality(true);
 
+      markDirty();
+
       URL.revokeObjectURL(url);
     };
 
@@ -630,6 +671,8 @@ function setUserScaleKeepingPoint(newUserScale, anchorPxX, anchorPxY) {
   redraw();
   updateStatusBar();
   maybeWarnQuality(false);
+
+  markDirty();
 }
 
 function fitToCover() {
@@ -640,6 +683,7 @@ function fitToCover() {
   pushHistory();
   toast("Dopasowano kadr");
   maybeWarnQuality(false);
+  markDirty();
 }
 
 function centerPhoto() {
@@ -651,6 +695,7 @@ function centerPhoto() {
   updateStatusBar();
   pushHistory();
   toast("Wyśrodkowano");
+  markDirty();
 }
 
 let isDragging = false;
@@ -756,7 +801,10 @@ function endPointer(e) {
     isDragging = false;
 
     if (gestureActive) {
-      if (gestureMoved) pushHistory();
+      if (gestureMoved) {
+        pushHistory();
+        markDirty();
+      }
       gestureActive = false;
       gestureMoved = false;
       maybeWarnQuality(false);
@@ -790,6 +838,7 @@ function wheelHistoryCommit() {
   if (wheelTimer) window.clearTimeout(wheelTimer);
   wheelTimer = window.setTimeout(() => {
     pushHistory();
+    markDirty();
     wheelTimer = 0;
   }, 180);
 }
@@ -803,6 +852,7 @@ if (btnZoomIn) {
     if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
     setUserScaleKeepingPoint(userScale * 1.12, CANVAS_PX / 2, CANVAS_PX / 2);
     pushHistory();
+    markDirty();
   });
 }
 
@@ -811,6 +861,7 @@ if (btnZoomOut) {
     if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
     setUserScaleKeepingPoint(userScale / 1.12, CANVAS_PX / 2, CANVAS_PX / 2);
     pushHistory();
+    markDirty();
   });
 }
 
@@ -869,7 +920,10 @@ function renderTemplateGrid(templates) {
     if (t.id === "__none__") {
       item.textContent = "Brak";
       item.classList.add("templateItem--none");
-      item.onclick = () => clearTemplateSelection();
+      item.onclick = () => {
+        clearTemplateSelection();
+        markDirty();
+      };
       templateGrid.appendChild(item);
       return;
     }
@@ -885,6 +939,7 @@ function renderTemplateGrid(templates) {
       updateStatusBar();
       pushHistory();
       toast(`Wybrano szablon: ${templateName()}`);
+      markDirty();
     };
 
     templateGrid.appendChild(item);
@@ -963,7 +1018,13 @@ if (btnDownloadPreview) {
 /* ===================== [SEKCJA 8B] WYŚLIJ DO REALIZACJI ===================== */
 let productionLocked = false;
 
-function setUiLocked(locked) {
+function setBusyOverlay(visible, msg) {
+  if (!busyOverlay) return;
+  busyOverlay.style.display = visible ? "flex" : "none";
+  if (busyOverlayMsg && typeof msg === "string") busyOverlayMsg.textContent = msg;
+}
+
+function setUiLocked(locked, busyMsg = "Trwa operacja…") {
   productionLocked = locked;
 
   const ids = [
@@ -989,6 +1050,9 @@ function setUiLocked(locked) {
   }
 
   if (canvas) canvas.style.opacity = locked ? "0.85" : "1";
+
+  document.documentElement.setAttribute("aria-busy", locked ? "true" : "false");
+  setBusyOverlay(locked, busyMsg);
 }
 
 function showFinalOverlay(title, msg) {
@@ -1002,6 +1066,30 @@ function showFinalOverlay(title, msg) {
   finalOverlay.style.display = "flex";
   document.documentElement.style.overflow = "hidden";
   document.body.style.overflow = "hidden";
+}
+
+function showErrorOverlay(title, msg) {
+  if (!errorOverlay) {
+    alert(`${title}\n\n${msg}`);
+    return;
+  }
+  if (errorOverlayTitle) errorOverlayTitle.textContent = title || "Nie udało się wysłać";
+  if (errorOverlayMsg) errorOverlayMsg.textContent = msg || "Wystąpił błąd. Spróbuj ponownie.";
+
+  errorOverlay.style.display = "flex";
+  document.documentElement.style.overflow = "hidden";
+  document.body.style.overflow = "hidden";
+}
+
+function closeErrorOverlay() {
+  if (!errorOverlay) return;
+  const ae = document.activeElement;
+  if (ae && errorOverlay.contains(ae)) {
+    try { ae.blur(); } catch {}
+  }
+  errorOverlay.style.display = "none";
+  document.documentElement.style.overflow = "";
+  document.body.style.overflow = "";
 }
 
 function renderProductionWithPrintOverlayToBlob(mime, qualityOrNull) {
@@ -1180,7 +1268,10 @@ function confirmNickFromModal() {
     return;
   }
 
-  if (nickInput) nickInput.value = v;
+  if (nickInput) {
+    nickInput.value = v;
+    markDirty();
+  }
   if (nickModalInput) nickModalInput.style.borderColor = "#e5e7eb";
 
   const shouldSend = pendingSendAfterNick === true;
@@ -1219,6 +1310,26 @@ window.addEventListener("keydown", (e) => {
 });
 
 /* ===================== [SEND] ===================== */
+function dpiWarningText(dpi) {
+  if (dpi == null) return null;
+
+  const v = Math.round(dpi);
+  const q = qualityLabelFromDpi(dpi);
+
+  const common =
+    `Wykryta jakość: ${q} (ok. ${v} DPI).\n\n` +
+    `To wynika z rozdzielczości oryginalnego zdjęcia i aktualnego powiększenia w edytorze.\n` +
+    `Jeśli zaakceptujesz, wydruk może być mniej ostry/pikselowy.\n\n`;
+
+  if (dpi < DPI_WEAK_MAX) {
+    return common + "Czy mimo to chcesz wysłać projekt do realizacji?";
+  }
+  if (dpi < DPI_MED_MAX) {
+    return common + "Czy mimo to chcesz kontynuować wysyłkę?";
+  }
+  return null;
+}
+
 async function sendToProduction(skipNickCheck = false) {
   if (productionLocked) return;
 
@@ -1233,15 +1344,26 @@ async function sendToProduction(skipNickCheck = false) {
     return;
   }
 
+  // 1) Potwierdzenie ogólne
   const first = window.confirm("Czy na pewno chcesz wysłać projekt do realizacji?");
   if (!first) return;
 
+  // 2) Jeśli DPI słabe/średnie — dopiszemy informację (bez blokowania)
+  const dpi = getEffectiveDpi();
+  const dpiWarn = dpiWarningText(dpi);
+  if (dpiWarn) {
+    const ok = window.confirm(dpiWarn);
+    if (!ok) return;
+  }
+
+  // 3) Ostatnie „nie do cofnięcia”
   const second = window.confirm(
     "To ostatni krok.\n\nPo wysłaniu projekt trafia do produkcji i nie będzie można wprowadzić zmian.\n\nKontynuować?"
   );
   if (!second) return;
 
-  setUiLocked(true);
+  closeErrorOverlay();
+  setUiLocked(true, "Trwa wysyłanie do realizacji…");
   toast("Wysyłanie do realizacji…");
 
   try {
@@ -1249,19 +1371,53 @@ async function sendToProduction(skipNickCheck = false) {
     const jpgBlob = await renderProductionJpgBlob();
     await uploadToServer(jpgBlob, jsonText, "projekt_PRINT.jpg");
 
+    markClean();
+
     showFinalOverlay(
       "Wysłano do realizacji ✅",
       "Projekt został przekazany do produkcji. Zmiana nie będzie możliwa."
     );
   } catch (err) {
     derr(err);
-    toast("Błąd wysyłania. Spróbuj ponownie.");
+
     setUiLocked(false);
+    const msg =
+      "Nie udało się wysłać projektu.\n\n" +
+      "Sprawdź połączenie z internetem i spróbuj ponownie.\n\n" +
+      (DEBUG ? `Szczegóły: ${String(err)}` : "");
+
+    showErrorOverlay("Błąd wysyłania", msg);
+    toast("Błąd wysyłania. Spróbuj ponownie.");
   }
 }
 
 if (btnSendToProduction) {
   btnSendToProduction.addEventListener("click", () => sendToProduction(false));
+}
+
+if (nickInput) {
+  nickInput.addEventListener("input", () => markDirty());
+}
+
+/* ===================== [ERROR OVERLAY BUTTONS] ===================== */
+if (errorOverlayRetry) {
+  errorOverlayRetry.addEventListener("click", (e) => {
+    e.preventDefault();
+    closeErrorOverlay();
+    // ponownie uruchamiamy standardową ścieżkę (z potwierdzeniami)
+    sendToProduction(false);
+  });
+}
+if (errorOverlayClose) {
+  errorOverlayClose.addEventListener("click", (e) => {
+    e.preventDefault();
+    closeErrorOverlay();
+  });
+}
+if (errorOverlay) {
+  errorOverlay.addEventListener("click", (e) => {
+    if (e.target === errorOverlay) closeErrorOverlay();
+  });
 }
 
 /* ===================== [START] ===================== */
@@ -1285,7 +1441,10 @@ if (btnSendToProduction) {
   updateStatusBar();
   pushHistory();
 
+  // init traktujemy jako clean
+  markClean();
+
   dlog("Loaded", { CACHE_VERSION, DEBUG });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-11 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-12 === */
