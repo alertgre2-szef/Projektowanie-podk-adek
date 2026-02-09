@@ -1,4 +1,4 @@
-/* FILE_VERSION: 2026-02-09-04 */
+/* FILE_VERSION: 2026-02-09-12 */
 /* === RESET === */
 
 * {
@@ -22,7 +22,9 @@ body {
   border-radius: 14px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.10);
   padding: 16px;
-  border-top: 6px solid #2563eb;
+
+  /* ZMIENIONE (sygnał załadowania nowych styli) */
+  border-top: 6px solid #16a34a;
 }
 
 .header {
@@ -195,6 +197,13 @@ input[type="file"], input[type="text"] {
   border-color: #d1d5db;
 }
 
+/* disabled */
+.btn:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 /* Szablony */
 .templateGrid {
   display: grid;
@@ -359,6 +368,101 @@ input[type="file"], input[type="text"] {
 }
 
 /* ========================= */
+/* BUSY OVERLAY */
+/* ========================= */
+.busyOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.60);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 22000;
+}
+
+.busyCard {
+  width: min(520px, calc(100vw - 32px));
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  border: 1px solid #e5e7eb;
+  padding: 16px;
+  text-align: center;
+  display: grid;
+  gap: 10px;
+}
+
+.busySpinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 4px solid rgba(17,24,39,0.12);
+  border-top-color: rgba(17,24,39,0.75);
+  margin: 0 auto;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.busyMsg {
+  font-weight: 900;
+  font-size: 16px;
+  color: #111827;
+}
+
+.busySub {
+  font-size: 13px;
+  color: #374151;
+}
+
+/* ========================= */
+/* ERROR OVERLAY (retry) */
+/* ========================= */
+.errorOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.60);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 23000;
+}
+
+.errorCard {
+  width: min(520px, calc(100vw - 32px));
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  border: 1px solid #e5e7eb;
+  padding: 16px;
+  text-align: center;
+}
+
+.errorTitle {
+  font-weight: 900;
+  font-size: 18px;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.errorMsg {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
+.errorActions {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+/* ========================= */
 /* FINAL OVERLAY */
 /* ========================= */
 .finalOverlay {
@@ -406,4 +510,4 @@ input[type="file"], input[type="text"] {
   .templateGrid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* === KONIEC PLIKU — editor/style.css === */
+/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-09-12 === */
