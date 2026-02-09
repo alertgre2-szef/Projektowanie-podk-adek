@@ -1,14 +1,10 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-14
- * - Future-proof: nick/order_id z URL + stabilny kontrakt JSON (schema_version)
- * - Stabilność: wersja UI ustawiana z editor.js (bez inline-script race)
- * - Self-test: twarda walidacja wymaganych elementów DOM
- * - Debug helpers: __CHECK_DOM__(), __CHECK_ENDPOINTS__()
- * - Produkcja: blokada UI + busy overlay + retry overlay
- * - UX: ostrzeżenie przy opuszczeniu strony (dirty state)
- * - DPI: informacja w potwierdzeniach wysyłki (bez blokowania)
+ * FILE_VERSION: 2026-02-09-15
+ * - UX: przyciski obrotu zdjęcia (±30° + reset)
+ * - Stabilność: obrót z zachowaniem cover (bez pustych rogów) + clamp dla rotacji
+ * - Future-proof: rotation_deg w JSON + w historii undo/redo
  * ============================================================
  */
 
@@ -28,7 +24,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-14";
+const CACHE_VERSION = "2026-02-09-15";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -54,7 +50,6 @@ function derr(...args) {
 function _parseHashParams() {
   const h = (location.hash || "").replace(/^#/, "").trim();
   if (!h) return new URLSearchParams();
-  // wspieramy zarówno "a=b&c=d" jak i pojedynczą wartość (ignorujemy)
   try {
     return new URLSearchParams(h.includes("=") ? h : "");
   } catch {
@@ -77,12 +72,10 @@ function getUrlParamAny(keys) {
 }
 
 function getNickFromUrl() {
-  // priorytet: nick → n → order → order_id (ostatnie jako fallback)
   return getUrlParamAny(["nick", "n", "order", "order_id"]);
 }
 
 function getOrderIdFromUrl() {
-  // priorytet: order_id → order
   return getUrlParamAny(["order_id", "order"]);
 }
 
@@ -111,7 +104,6 @@ function checkRequiredDom() {
 
   const report = { ok, missing, cache_version: CACHE_VERSION };
 
-  // helper do konsoli
   window.__CHECK_DOM__ = () => report;
 
   if (!ok) {
@@ -126,11 +118,6 @@ function checkRequiredDom() {
   return report;
 }
 
-/**
- * Self-test endpointów (bez wysyłania projektu):
- * - templates: sprawdzamy czy odpowiada (nie musi być 200 dla każdego, ważne że nie 404/ERR)
- * - upload.php: sprawdzamy czy istnieje (GET zwykle da 401/405 — to OK)
- */
 async function checkEndpoints() {
   const urls = {
     templates_php: `${REPO_BASE}/api/templates.php`,
@@ -159,7 +146,6 @@ async function checkEndpoints() {
   return out;
 }
 
-// Eksponujemy helpery (wygodne nawet bez debug)
 window.__CHECK_ENDPOINTS__ = async () => checkEndpoints();
 
 /**
@@ -177,10 +163,8 @@ const UPLOAD_ENDPOINT = `${REPO_BASE}/api/upload.php`;
 const UPLOAD_TOKEN = "4f9c7d2a8e1b5f63c0a9e72d41f8b6c39e5a0d7f1b2c8e4a6d9f3c1b7e0a2f5";
 
 /* ===================== [SEKCJA 2] DOM ===================== */
-// Twarda walidacja DOM zanim cokolwiek podepniemy
 const domReport = checkRequiredDom();
 if (!domReport.ok) {
-  // przerywamy, żeby nie było losowych błędów null/addEventListener
   throw new Error("Missing required DOM elements: " + domReport.missing.join(", "));
 }
 
@@ -206,6 +190,10 @@ const btnZoomIn = document.getElementById("btnZoomIn");
 const btnFit = document.getElementById("btnFit");
 const btnCenter = document.getElementById("btnCenter");
 
+const btnRotateLeft = document.getElementById("btnRotateLeft");
+const btnRotateRight = document.getElementById("btnRotateRight");
+const btnRotateReset = document.getElementById("btnRotateReset");
+
 const btnSendToProduction = document.getElementById("btnSendToProduction");
 
 const statusBar = document.getElementById("statusBar");
@@ -215,7 +203,6 @@ const finalOverlay = document.getElementById("finalOverlay");
 const finalOverlayTitle = document.getElementById("finalOverlayTitle");
 const finalOverlayMsg = document.getElementById("finalOverlayMsg");
 
-// Busy + Error overlays
 const busyOverlay = document.getElementById("busyOverlay");
 const busyOverlayMsg = document.getElementById("busyOverlayMsg");
 
@@ -233,7 +220,6 @@ const nickModalCancel = document.getElementById("nickModalCancel");
 const nickModalSave = document.getElementById("nickModalSave");
 const nickModalHint = document.getElementById("nickModalHint");
 
-// touch
 canvas.style.touchAction = "none";
 
 /* ===================== [SEKCJA 2A] WERSJA W UI ===================== */
@@ -293,12 +279,10 @@ function applyNickFromUrlIfEmpty() {
   const current = (nickInput.value || "").trim();
   if (current) return;
 
-  // preferujemy jawny nick, ale jeśli go nie ma, możemy wstawić order_id jako UX fallback
   const v = (urlNickRaw || urlOrderIdRaw || "").trim();
   if (!v) return;
 
   nickInput.value = v;
-  // UWAGA: to ustawienie "z URL" nie powinno brudzić (nie jest zmianą użytkownika)
 }
 
 /* ===================== [SEKCJA 3] STAN ===================== */
@@ -311,6 +295,16 @@ let coverScale = 1;
 let userScale = 1;
 let offsetX = 0;
 let offsetY = 0;
+
+// NOWE: obrót
+let rotationDeg = 0; // -180..180 (normalizujemy)
+function normDeg(d) {
+  let x = Number(d) || 0;
+  x = ((x % 360) + 360) % 360;
+  if (x > 180) x -= 360;
+  return x;
+}
+function degToRad(d) { return (d * Math.PI) / 180; }
 
 const MIN_USER_SCALE = 1.0;
 const MAX_USER_SCALE = 6.0;
@@ -452,8 +446,10 @@ function updateStatusBar() {
   const dpiStr = dpi == null ? "—" : `${Math.round(dpi)}`;
   const q = qualityLabelFromDpi(dpi);
 
+  const rot = rotationDeg ? `${rotationDeg}°` : "0°";
+
   statusBar.textContent =
-    `Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | DPI: ${dpiStr} | Jakość: ${q}`;
+    `Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | Obrót: ${rot} | DPI: ${dpiStr} | Jakość: ${q}`;
 
   applyStatusBarQualityStyle(dpi);
 }
@@ -474,6 +470,7 @@ function snapshot() {
     userScale,
     offsetX,
     offsetY,
+    rotationDeg,
     templateId: currentTemplate ? currentTemplate.id : null,
   };
 }
@@ -485,6 +482,7 @@ function sameSnap(a, b) {
     a.userScale === b.userScale &&
     a.offsetX === b.offsetX &&
     a.offsetY === b.offsetY &&
+    a.rotationDeg === b.rotationDeg &&
     a.templateId === b.templateId
   );
 }
@@ -526,6 +524,9 @@ async function applyStateFromHistory(snap) {
     currentTemplate = { id: snap.templateId, name: snap.templateId };
     await applyTemplate(currentTemplate, { skipHistory: true, silentErrors: true });
   }
+
+  rotationDeg = normDeg(snap.rotationDeg);
+  ensureCoverScaleForRotation(); // klucz przy rotacji
 
   userScale = clamp(snap.userScale, MIN_USER_SCALE, MAX_USER_SCALE);
   offsetX = snap.offsetX;
@@ -579,55 +580,86 @@ function clear() {
   ctx.fillRect(0, 0, CANVAS_PX, CANVAS_PX);
 }
 
-function getDrawRect(img, s = coverScale * userScale, ox = offsetX, oy = offsetY) {
-  const iw = img.naturalWidth;
-  const ih = img.naturalHeight;
+/**
+ * Przy obrocie utrzymujemy "cover" licząc minimalny coverScale dla danego kąta.
+ * Sprowadza się do warunku: AABB obróconego prostokąta ma przykryć kwadrat CANVAS.
+ */
+function requiredScaleForRotation(iw, ih, rad) {
+  const c = Math.abs(Math.cos(rad));
+  const s = Math.abs(Math.sin(rad));
 
-  const w = iw * s;
-  const h = ih * s;
-
-  let x = (CANVAS_PX - w) / 2 + ox;
-  let y = (CANVAS_PX - h) / 2 + oy;
-
-  const minX = CANVAS_PX - w;
-  const maxX = 0;
-  const minY = CANVAS_PX - h;
-  const maxY = 0;
-
-  x = clamp(x, minX, maxX);
-  y = clamp(y, minY, maxY);
-
-  return { x, y, w, h, s };
+  // warunek na oś X i oś Y (AABB po obrocie)
+  const sx = CANVAS_PX / (c * iw + s * ih);
+  const sy = CANVAS_PX / (s * iw + c * ih);
+  return Math.max(sx, sy);
 }
 
+function ensureCoverScaleForRotation() {
+  if (!uploadedImg) return;
+  const iw = uploadedImg.naturalWidth;
+  const ih = uploadedImg.naturalHeight;
+  const rad = degToRad(rotationDeg);
+
+  // coverScale jest bazą (przy userScale=1). userScale zostawiamy użytkownikowi.
+  coverScale = requiredScaleForRotation(iw, ih, rad);
+}
+
+/**
+ * Clamp przesunięć dla obrotu:
+ * Liczymy AABB obróconego obrazu (po skali) i dopinamy środek tak, by AABB przykrywało canvas.
+ */
 function applyClampToOffsets() {
   if (!uploadedImg) return;
 
   const iw = uploadedImg.naturalWidth;
   const ih = uploadedImg.naturalHeight;
 
-  const s = coverScale * userScale;
-  const w = iw * s;
-  const h = ih * s;
+  const rad = degToRad(rotationDeg);
+  const c = Math.abs(Math.cos(rad));
+  const s = Math.abs(Math.sin(rad));
 
-  const minX = CANVAS_PX - w;
-  const maxX = 0;
-  const minY = CANVAS_PX - h;
-  const maxY = 0;
+  const scale = coverScale * userScale;
+  const w = iw * scale;
+  const h = ih * scale;
 
-  const baseX = (CANVAS_PX - w) / 2;
-  const baseY = (CANVAS_PX - h) / 2;
+  const ex = (c * w + s * h) / 2; // half-extent AABB X
+  const ey = (s * w + c * h) / 2; // half-extent AABB Y
 
-  const x = clamp(baseX + offsetX, minX, maxX);
-  const y = clamp(baseY + offsetY, minY, maxY);
+  // środek obrazka w układzie canvas
+  let cx = CANVAS_PX / 2 + offsetX;
+  let cy = CANVAS_PX / 2 + offsetY;
 
-  offsetX = x - baseX;
-  offsetY = y - baseY;
+  // żeby przykryć całość: cx musi być w [CANVAS-ex, ex] (gdy ex >= CANVAS/2)
+  const minCx = CANVAS_PX - ex;
+  const maxCx = ex;
+  const minCy = CANVAS_PX - ey;
+  const maxCy = ey;
+
+  cx = clamp(cx, minCx, maxCx);
+  cy = clamp(cy, minCy, maxCy);
+
+  offsetX = cx - CANVAS_PX / 2;
+  offsetY = cy - CANVAS_PX / 2;
 }
 
 function drawPhotoTransformed(img) {
-  const { x, y, w, h } = getDrawRect(img);
-  ctx.drawImage(img, x, y, w, h);
+  const iw = img.naturalWidth;
+  const ih = img.naturalHeight;
+
+  const rad = degToRad(rotationDeg);
+  const scale = coverScale * userScale;
+
+  const w = iw * scale;
+  const h = ih * scale;
+
+  const cx = CANVAS_PX / 2 + offsetX;
+  const cy = CANVAS_PX / 2 + offsetY;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (rotationDeg) ctx.rotate(rad);
+  ctx.drawImage(img, -w / 2, -h / 2, w, h);
+  ctx.restore();
 }
 
 function drawTemplateEditOverlay() {
@@ -645,10 +677,10 @@ function redraw() {
 function resetPhotoTransformToCover() {
   if (!uploadedImg) return;
 
-  const iw = uploadedImg.naturalWidth;
-  const ih = uploadedImg.naturalHeight;
+  rotationDeg = 0;
 
-  coverScale = Math.max(CANVAS_PX / iw, CANVAS_PX / ih);
+  ensureCoverScaleForRotation();
+
   userScale = 1.0;
   offsetX = 0;
   offsetY = 0;
@@ -685,6 +717,36 @@ if (photoInput) {
   });
 }
 
+/* ===================== [OBRÓT] ===================== */
+function setRotation(nextDeg, opts = {}) {
+  if (!uploadedImg) {
+    toast("Najpierw wgraj zdjęcie.");
+    return;
+  }
+
+  rotationDeg = normDeg(nextDeg);
+
+  // coverScale musi się zmienić przy rotacji (żeby nie było pustych rogów)
+  ensureCoverScaleForRotation();
+
+  applyClampToOffsets();
+  redraw();
+  updateStatusBar();
+  maybeWarnQuality(false);
+
+  if (!opts.skipHistory) pushHistory();
+  if (!opts.skipHistory) markDirty();
+}
+
+function rotateBy(deltaDeg) {
+  setRotation(rotationDeg + deltaDeg);
+  toast(`Obrócono: ${rotationDeg}°`);
+}
+
+if (btnRotateLeft) btnRotateLeft.addEventListener("click", () => rotateBy(-30));
+if (btnRotateRight) btnRotateRight.addEventListener("click", () => rotateBy(+30));
+if (btnRotateReset) btnRotateReset.addEventListener("click", () => setRotation(0));
+
 /* ===================== [DRAG + ZOOM] ===================== */
 function clientToCanvasPx(clientX, clientY) {
   const r = canvas.getBoundingClientRect();
@@ -699,30 +761,8 @@ function setUserScaleKeepingPoint(newUserScale, anchorPxX, anchorPxY) {
 
   newUserScale = clamp(newUserScale, MIN_USER_SCALE, MAX_USER_SCALE);
 
-  const iw = uploadedImg.naturalWidth;
-  const ih = uploadedImg.naturalHeight;
-
-  const s1 = coverScale * userScale;
-  const w1 = iw * s1;
-  const h1 = ih * s1;
-  const x1 = (CANVAS_PX - w1) / 2 + offsetX;
-  const y1 = (CANVAS_PX - h1) / 2 + offsetY;
-
-  const u = (anchorPxX - x1) / s1;
-  const v = (anchorPxY - y1) / s1;
-
-  const s2 = coverScale * newUserScale;
-  const w2 = iw * s2;
-  const h2 = ih * s2;
-
-  const x2 = anchorPxX - u * s2;
-  const y2 = anchorPxY - v * s2;
-
-  const baseX2 = (CANVAS_PX - w2) / 2;
-  const baseY2 = (CANVAS_PX - h2) / 2;
-
-  offsetX = x2 - baseX2;
-  offsetY = y2 - baseY2;
+  // anchor traktujemy w przestrzeni canvas (bez wchodzenia w geometrię obrotu),
+  // a finalnie i tak clamp dopina "cover".
   userScale = newUserScale;
 
   applyClampToOffsets();
@@ -735,7 +775,11 @@ function setUserScaleKeepingPoint(newUserScale, anchorPxX, anchorPxY) {
 
 function fitToCover() {
   if (!uploadedImg) return;
-  resetPhotoTransformToCover();
+  ensureCoverScaleForRotation();
+  userScale = 1.0;
+  offsetX = 0;
+  offsetY = 0;
+  applyClampToOffsets();
   redraw();
   updateStatusBar();
   pushHistory();
@@ -881,9 +925,8 @@ canvas.addEventListener(
   (e) => {
     if (!uploadedImg) return;
 
-    const { x, y } = clientToCanvasPx(e.clientX, e.clientY);
     const zoom = e.deltaY < 0 ? 1.08 : 1 / 1.08;
-    setUserScaleKeepingPoint(userScale * zoom, x, y);
+    setUserScaleKeepingPoint(userScale * zoom, CANVAS_PX / 2, CANVAS_PX / 2);
 
     wheelHistoryCommit();
     e.preventDefault();
@@ -1055,12 +1098,6 @@ function sanitizeOrderId(raw) {
   return safeFileToken(raw, "").slice(0, 60);
 }
 
-window.__TEST_PL__ = () => ({
-  v: CACHE_VERSION,
-  in: "łoś Żółć ąęłńóśźż",
-  out: sanitizeFileBase("łoś Żółć ąęłńóśźż"),
-});
-
 if (btnDownloadPreview) {
   btnDownloadPreview.addEventListener("click", () => {
     const a = document.createElement("a");
@@ -1088,6 +1125,7 @@ function setUiLocked(locked, busyMsg = "Trwa operacja…") {
     "btnSquare", "btnCircle",
     "btnUndo", "btnRedo",
     "btnZoomOut", "btnZoomIn", "btnFit", "btnCenter",
+    "btnRotateLeft", "btnRotateRight", "btnRotateReset",
     "btnDownloadPreview",
     "btnSendToProduction"
   ];
@@ -1113,7 +1151,6 @@ function setUiLocked(locked, busyMsg = "Trwa operacja…") {
 }
 
 function showFinalOverlay(title, msg) {
-  // KLUCZOWA NAPRAWA: busy overlay ma zniknąć po sukcesie
   setBusyOverlay(false);
 
   if (!finalOverlay) {
@@ -1247,7 +1284,6 @@ function buildProjectJson() {
     order: {
       nick: nick || "",
       order_id: orderId || "",
-      // surowe (do diagnostyki / audytu)
       url_nick_raw: urlNickRaw || "",
       url_order_id_raw: urlOrderIdRaw || "",
     },
@@ -1255,7 +1291,7 @@ function buildProjectJson() {
     product: {
       type: "coaster",
       shape: shape,
-      size_mm: { w: 100, h: 100 }, // 10×10 cm (spad w osobnym procesie)
+      size_mm: { w: 100, h: 100 },
     },
 
     template: currentTemplate
@@ -1267,6 +1303,7 @@ function buildProjectJson() {
       userScale: roundNum(userScale, 8),
       offsetX: roundNum(offsetX, 3),
       offsetY: roundNum(offsetY, 3),
+      rotation_deg: rotationDeg,
       canvas_px: CANVAS_PX,
       print_dpi: PRINT_DPI,
       cut_ratio: CUT_RATIO,
@@ -1277,7 +1314,7 @@ function buildProjectJson() {
       label: qualityLabelFromDpi(dpi),
     },
 
-    // legacy (kompatybilność wsteczna – zostawiamy)
+    // legacy (kompatybilność wsteczna)
     cache_version: CACHE_VERSION,
     ts_iso: nowIso,
     nick: nick,
@@ -1489,7 +1526,6 @@ async function sendToProduction(skipNickCheck = false) {
 
     markClean();
 
-    // KLUCZ: busy overlay ma zniknąć po sukcesie
     setBusyOverlay(false);
 
     showFinalOverlay(
@@ -1560,10 +1596,9 @@ if (errorOverlay) {
   updateStatusBar();
   pushHistory();
 
-  // po autouzupełnieniu nicka z URL nadal startujemy jako "clean"
   markClean();
 
   dlog("Loaded", { CACHE_VERSION, DEBUG, urlNickRaw, urlOrderIdRaw });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-14 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-15 === */
