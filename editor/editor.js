@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * * FILE_VERSION: 2026-02-08-18
+ * * FILE_VERSION: 2026-02-09-01
  * - Maski PNG jako overlay <img id="maskOverlay" class="maskOverlay">
  * - Używamy WYŁĄCZNIE gotowych masek z repo:
  *   /editor/assets/masks/mask_square.png
@@ -26,7 +26,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-08-18";
+const CACHE_VERSION = "2026-02-09-01";
 window.CACHE_VERSION = CACHE_VERSION; // dla index.html (wyświetlanie wersji)
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
