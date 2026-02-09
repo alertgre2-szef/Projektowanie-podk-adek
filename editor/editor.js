@@ -1,8 +1,8 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-05
- * - Fix: po wpisaniu nicku w modalu i kliknięciu "Wyślij" -> wysyła zamówienie
+ * FILE_VERSION: 2026-02-09-06
+ * - Fix: sanitize nicka -> zostawia polskie znaki (Unicode)
  * ============================================================
  */
 
@@ -22,7 +22,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-05";
+const CACHE_VERSION = "2026-02-09-06";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -827,11 +827,28 @@ function clearTemplateSelection(opts = {}) {
 }
 
 /* ===================== [SEKCJA 8] EKSPORT ===================== */
+
+/** Zostawia Unicode (w tym PL), usuwa tylko znaki ryzykowne dla nazw plików */
+function sanitizeNickUnicode(raw, fallback = "projekt") {
+  let s = String(raw || "").trim();
+  if (!s) return fallback;
+
+  // usuń znaki "niebezpieczne" w nazwach plików/identyfikatorach
+  // zostaw: litery (Unicode), cyfry (Unicode), spacje, myślnik, podkreślenie, kropka
+  s = s.normalize("NFC");
+  s = s.replace(/[^\p{L}\p{N}\s._-]+/gu, "");
+
+  // spacje -> pojedyncze podkreślenia
+  s = s.replace(/\s+/g, "_").replace(/_+/g, "_");
+
+  // utnij długość
+  s = s.slice(0, 60);
+
+  return s || fallback;
+}
+
 function sanitizeFileBase(raw) {
-  return String(raw || "projekt")
-    .trim()
-    .replace(/[^\w\-]+/g, "_")
-    .slice(0, 60) || "projekt";
+  return sanitizeNickUnicode(raw, "projekt");
 }
 
 if (btnDownloadPreview) {
@@ -967,10 +984,7 @@ function buildProjectJson() {
 }
 
 function sanitizeOrderId(raw) {
-  return String(raw || "")
-    .trim()
-    .replace(/[^\w\-]+/g, "_")
-    .slice(0, 60);
+  return sanitizeNickUnicode(raw, "").slice(0, 60);
 }
 
 async function uploadToServer(blob, jsonText, filename) {
@@ -1077,7 +1091,6 @@ function confirmNickFromModal() {
 
   const shouldSend = pendingSendAfterNick === true;
 
-  // zamykamy bez kasowania flagi "pending"
   closeNickModal({ cancel: false });
 
   if (shouldSend) {
@@ -1176,4 +1189,4 @@ if (btnSendToProduction) {
   pushHistory();
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-05 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-06 === */
