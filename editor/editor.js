@@ -1,8 +1,10 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-16
- * - Theme: jasny/ciemny (URL ?theme=dark|light + localStorage + prefers-color-scheme)
+ * FILE_VERSION: 2026-02-09-17
+ * - Export: blokada podglądu bez wgranego zdjęcia
+ * - UI: spójne odświeżanie enabled/disabled dla eksportu
+ * - Theme/Rotate/JSON: jak w poprzedniej wersji
  * ============================================================
  */
 
@@ -22,7 +24,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-16";
+const CACHE_VERSION = "2026-02-09-17";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -75,7 +77,6 @@ function applyTheme(theme, { persist = true } = {}) {
   const t = normalizeTheme(theme) || "light";
   document.documentElement.dataset.theme = t;
 
-  // UI buttons (opcjonalne)
   const bL = document.getElementById("btnThemeLight");
   const bD = document.getElementById("btnThemeDark");
   if (bL) bL.classList.toggle("active", t === "light");
@@ -486,6 +487,14 @@ function updateStatusBar() {
   applyStatusBarQualityStyle(dpi);
 }
 
+/* ===================== [EXPORT BUTTONS ENABLED STATE] ===================== */
+function refreshExportButtons() {
+  const hasPhoto = !!uploadedImg;
+  if (btnDownloadPreview) btnDownloadPreview.disabled = !hasPhoto || productionLocked;
+  // send button jest blokowany w setUiLocked, ale zostawiamy spójność:
+  if (btnSendToProduction) btnSendToProduction.disabled = productionLocked;
+}
+
 /* ---- Undo/Redo (5 kroków) ---- */
 const HISTORY_MAX = 5;
 let history = [];
@@ -721,6 +730,8 @@ if (photoInput) {
       redraw();
       updateStatusBar();
       pushHistory();
+
+      refreshExportButtons();
 
       toast("Zdjęcie wgrane ✅");
       maybeWarnQuality(true);
@@ -1107,6 +1118,11 @@ function sanitizeOrderId(raw) {
 
 if (btnDownloadPreview) {
   btnDownloadPreview.addEventListener("click", () => {
+    if (!uploadedImg) {
+      toast("Najpierw wgraj zdjęcie, aby pobrać podgląd.");
+      return;
+    }
+
     const a = document.createElement("a");
     const nick = sanitizeFileBase(nickInput?.value);
     a.download = `${nick}_preview.jpg`;
@@ -1156,6 +1172,8 @@ function setUiLocked(locked, busyMsg = "Trwa operacja…") {
 
   document.documentElement.setAttribute("aria-busy", locked ? "true" : "false");
   setBusyOverlay(locked, busyMsg);
+
+  refreshExportButtons();
 }
 
 function showFinalOverlay(title, msg) {
@@ -1577,6 +1595,9 @@ if (errorOverlay) {
   await setShape("square", { skipHistory: true });
   clearTemplateSelection({ skipHistory: true });
 
+  // Na starcie: brak zdjęcia => eksport ma być zablokowany
+  refreshExportButtons();
+
   try {
     const templates = await loadTemplates();
     renderTemplateGrid(templates);
@@ -1594,4 +1615,4 @@ if (errorOverlay) {
   dlog("Loaded", { CACHE_VERSION, DEBUG });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-16 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-17 === */
