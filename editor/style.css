@@ -1,4 +1,4 @@
-/* FILE_VERSION: 2026-02-09-16 | VARIANT: A-BLUE */
+/* FILE_VERSION: 2026-02-09-17 */
 /* === THEME VARS === */
 :root{
   --bg: #0b0f14;
@@ -9,10 +9,18 @@
   --border: #e5e7eb;
   --preview-bg: #000000;
 
-  --accent: #2563eb;      /* blue */
+  /* Akcent (możesz zmienić: blue/green) */
+  --accent: #2563eb;
   --accent-2: #1d4ed8;
+
+  /* Przyciski */
   --btn-bg: #111827;
+  --btn-border: #111827;
   --btn-text: #ffffff;
+
+  --btn-secondary-bg: #ffffff;
+  --btn-secondary-border: #d1d5db;
+  --btn-secondary-text: #111827;
 
   --toast-bg: rgba(255,255,255,0.96);
   --toast-text: #111827;
@@ -27,8 +35,15 @@
   --border: rgba(255,255,255,0.12);
   --preview-bg: #000000;
 
-  --btn-bg: #111827;
+  /* W dark: CTA ma być czytelne => primary = accent */
+  --btn-bg: var(--accent);
+  --btn-border: var(--accent-2);
   --btn-text: #ffffff;
+
+  /* Secondary w dark: NIE przezroczyste “nic”, tylko delikatna płytka */
+  --btn-secondary-bg: rgba(255,255,255,0.08);
+  --btn-secondary-border: rgba(255,255,255,0.18);
+  --btn-secondary-text: var(--text);
 
   --toast-bg: rgba(17,24,39,0.92);
   --toast-text: #f9fafb;
@@ -58,7 +73,7 @@ body {
   padding: 16px;
 
   /* ZMIENIONE (sygnał załadowania nowych styli) */
-  border-top: 6px solid var(--accent);
+  border-top: 6px solid #a855f7;
 }
 
 .header {
@@ -209,23 +224,17 @@ input[type="file"], input[type="text"] {
   margin-top: 8px;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid var(--btn-bg);
+  border: 1px solid var(--btn-border);
   background: var(--btn-bg);
   color: var(--btn-text);
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .btn.secondary {
-  border-color: #d1d5db;
-  background: #fff;
-  color: #111827;
-}
-
-:root[data-theme="dark"] .btn.secondary{
-  background: transparent;
-  color: var(--text);
-  border-color: var(--border);
+  border-color: var(--btn-secondary-border);
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
 }
 
 .btn.small {
@@ -235,29 +244,25 @@ input[type="file"], input[type="text"] {
   margin-top: 0;
 }
 
+/* Active (np. theme/shape) */
 .btn.active {
   background: var(--accent);
   border-color: var(--accent-2);
   color: #fff;
 }
 
+/* small nie-active mają być zawsze widoczne */
 .btn.small:not(.active) {
-  background: #fff;
-  color: #111827;
-  border-color: #d1d5db;
-}
-
-:root[data-theme="dark"] .btn.small:not(.active){
-  background: transparent;
-  color: var(--text);
-  border-color: var(--border);
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+  border-color: var(--btn-secondary-border);
 }
 
 /* disabled */
 .btn:disabled,
 input:disabled {
   cursor: not-allowed;
-  opacity: 0.65;
+  opacity: 0.55;
 }
 
 /* Szablony */
@@ -334,7 +339,7 @@ input:disabled {
 }
 .toastClose:hover{ background: rgba(17,24,39,0.16); }
 
-/* MODAL / OVERLAYS — bez zmian funkcjonalnych */
+/* MODAL / OVERLAYS */
 .modalOverlay, .busyOverlay, .errorOverlay, .finalOverlay {
   position: fixed;
   inset: 0;
@@ -372,9 +377,9 @@ input:disabled {
 
 .modalFooter{ display:flex; flex-direction:column; gap:10px; margin-top:12px; }
 #nickModalSave{ order:1; margin-top:0; }
-#nickModalCancel{ order:2; margin-top:14px; opacity:0.75; border-color: var(--border); color: var(--text); }
-#nickModalCancel:hover{ opacity:0.9; }
+#nickModalCancel{ order:2; margin-top:14px; opacity:0.80; }
 
+/* Busy */
 .busyCard{ text-align:center; display:grid; gap:10px; }
 .busySpinner{
   width:34px; height:34px; border-radius:999px;
@@ -397,4 +402,4 @@ input:disabled {
   .templateGrid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-09-16 | VARIANT: A-BLUE === */
+/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-09-17 === */
