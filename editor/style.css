@@ -1,4 +1,4 @@
-/* FILE_VERSION: 2026-02-09-17 */
+/* FILE_VERSION: 2026-02-09-18 */
 /* === THEME VARS === */
 :root{
   --bg: #0b0f14;
@@ -40,7 +40,7 @@
   --btn-border: var(--accent-2);
   --btn-text: #ffffff;
 
-  /* Secondary w dark: NIE przezroczyste “nic”, tylko delikatna płytka */
+  /* Secondary w dark: widoczne tło */
   --btn-secondary-bg: rgba(255,255,255,0.08);
   --btn-secondary-border: rgba(255,255,255,0.18);
   --btn-secondary-text: var(--text);
@@ -73,7 +73,7 @@ body {
   padding: 16px;
 
   /* ZMIENIONE (sygnał załadowania nowych styli) */
-  border-top: 6px solid #a855f7;
+  border-top: 6px solid #22c55e;
 }
 
 .header {
@@ -244,14 +244,13 @@ input[type="file"], input[type="text"] {
   margin-top: 0;
 }
 
-/* Active (np. theme/shape) */
+/* Active (np. theme/shape/lock) */
 .btn.active {
   background: var(--accent);
   border-color: var(--accent-2);
   color: #fff;
 }
 
-/* small nie-active mają być zawsze widoczne */
 .btn.small:not(.active) {
   background: var(--btn-secondary-bg);
   color: var(--btn-secondary-text);
@@ -402,4 +401,4 @@ input:disabled {
   .templateGrid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-09-17 === */
+/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-09-18 === */
