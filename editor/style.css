@@ -1,4 +1,4 @@
-/* FILE_VERSION: 2026-02-09-14 */
+/* FILE_VERSION: 2026-02-09-15 */
 /* === RESET === */
 
 * {
@@ -24,7 +24,7 @@ body {
   padding: 16px;
 
   /* ZMIENIONE (sygnał załadowania nowych styli) */
-  border-top: 6px solid #2563eb;
+  border-top: 6px solid #a855f7;
 }
 
 .header {
@@ -247,10 +247,7 @@ input:disabled {
   transform: translateX(-50%);
   display: grid;
   gap: 8px;
-
-  /* było 9999 — teraz nad modalami */
   z-index: 25000;
-
   pointer-events: none;
   width: min(560px, calc(100% - 24px));
 }
@@ -259,12 +256,9 @@ input:disabled {
   pointer-events: none;
   padding: 10px 12px;
   border-radius: 12px;
-
-  /* jaśniejsze i czytelniejsze */
   background: rgba(255,255,255,0.96);
   color: #111827;
   border: 1px solid rgba(17,24,39,0.12);
-
   font-size: 12px;
   line-height: 1.35;
   box-shadow: 0 10px 30px rgba(0,0,0,0.25);
@@ -276,10 +270,8 @@ input:disabled {
   position:absolute; right:8px; top:6px;
   width:22px; height:22px;
   border:0; border-radius:999px;
-
   background: rgba(17,24,39,0.10);
   color:#111827;
-
   font-size:16px; line-height:22px;
   cursor:pointer;
   pointer-events:auto;
@@ -323,7 +315,6 @@ input:disabled {
   color: #111827;
 }
 
-/* X ma zniknąć */
 .modalClose {
   display: none !important;
 }
@@ -510,4 +501,4 @@ input:disabled {
   .templateGrid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-09-14 === */
+/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-09-15 === */
