@@ -1,8 +1,8 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-08
- * - Fix: sanitize nicka -> NIE gubi polskich znaków (bez literałów PL, bez \p{L})
+ * FILE_VERSION: 2026-02-09-09
+ * - Fix: nazwy plików/order_id NIE gubią polskich znaków (usuwamy tylko znaki zakazane w nazwach plików)
  * ============================================================
  */
 
@@ -22,7 +22,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-08";
+const CACHE_VERSION = "2026-02-09-09";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -817,33 +817,45 @@ function clearTemplateSelection(opts = {}) {
   if (!opts.skipHistory) pushHistory();
 }
 
-/* ===================== [SEKCJA 8] EKSPORT / SANITIZE ===================== */
+/* ===================== [SEKCJA 8] EKSPORT / NAZWY ===================== */
 /**
- * Kluczowy fix:
- * - pozwalamy na litery z zakresów Latin-1 + Latin Extended + dodatki (bez \p{L})
- * - zero literałów "ąćęł..." w regexie (odpornie na kodowanie pliku)
+ * Usuwamy WYŁĄCZNIE znaki zabronione w nazwach plików (Windows) + kontrolne.
+ * Polskie litery zostają zawsze.
  */
-const SAFE_LETTERS_RX = /[^0-9A-Za-z\u00C0-\u024F\u1E00-\u1EFF\s._-]+/g;
-
-function sanitizeNick(raw, fallback = "projekt") {
+function safeFileToken(raw, fallback = "projekt") {
   let s = String(raw || "").trim();
   if (!s) return fallback;
 
   s = s.normalize("NFC");
-  s = s.replace(SAFE_LETTERS_RX, "");
-  s = s.replace(/\s+/g, "_").replace(/_+/g, "_");
+
+  // kontrolne + DEL
+  s = s.replace(/[\u0000-\u001F\u007F]/g, "");
+
+  // znaki zakazane w nazwach plików (Windows)
+  s = s.replace(/[\\\/:*?"<>|]/g, "_");
+
+  // porządki
+  s = s.replace(/\s+/g, "_").replace(/_+/g, "_").replace(/^\.+/, "");
   s = s.slice(0, 60);
 
   return s || fallback;
 }
 
 function sanitizeFileBase(raw) {
-  return sanitizeNick(raw, "projekt");
+  return safeFileToken(raw, "projekt");
 }
 
 function sanitizeOrderId(raw) {
-  return sanitizeNick(raw, "").slice(0, 60);
+  // wysyłamy do PHP jako "order_id" – z polskimi znakami, tylko bez zakazanych
+  return safeFileToken(raw, "").slice(0, 60);
 }
+
+// szybki test w konsoli (tylko debug)
+window.__TEST_PL__ = () => ({
+  v: CACHE_VERSION,
+  in: "łoś Żółć ąęłńóśźż",
+  out: sanitizeFileBase("łoś Żółć ąęłńóśźż"),
+});
 
 if (btnDownloadPreview) {
   btnDownloadPreview.addEventListener("click", () => {
@@ -959,7 +971,7 @@ function renderProductionJpgBlob() {
 }
 
 function buildProjectJson() {
-  const nick = (nickInput?.value || "").trim(); // oryginał z PL znakami
+  const nick = (nickInput?.value || "").trim(); // ORYGINAŁ (z polskimi znakami)
   const dpi = getEffectiveDpi();
   return JSON.stringify(
     {
@@ -1179,4 +1191,4 @@ if (btnSendToProduction) {
   pushHistory();
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-08 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-09 === */
