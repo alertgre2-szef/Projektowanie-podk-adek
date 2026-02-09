@@ -1,9 +1,8 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-03
- * - Walidacja wysyłki: zdjęcie + nick
- * - Brak nicka: modal (fallback toast+focus)
+ * FILE_VERSION: 2026-02-09-05
+ * - Fix: po wpisaniu nicku w modalu i kliknięciu "Wyślij" -> wysyła zamówienie
  * ============================================================
  */
 
@@ -23,7 +22,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-03";
+const CACHE_VERSION = "2026-02-09-05";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -248,13 +247,12 @@ function maybeWarnQuality(force = false) {
   if (level === 2) {
     toast(
       `Uwaga: jakość może być słaba (ok. ${Math.round(dpi)} DPI). ` +
-        `Najlepiej wygląda zdjęcie z oryginału. ` +
-        `Komunikatory często pogarszają jakość przez kompresję.`
+      `Najlepiej wygląda zdjęcie z oryginału. Komunikatory często kompresują.`
     );
   } else if (level === 1) {
     toast(
       `Uwaga: zdjęcie ma średnią jakość (ok. ${Math.round(dpi)} DPI). ` +
-        `Jeśli możesz, użyj oryginalnego pliku.`
+      `Jeśli możesz, użyj oryginału.`
     );
   }
 }
@@ -726,22 +724,6 @@ if (btnZoomOut) {
 if (btnUndo) btnUndo.addEventListener("click", undo);
 if (btnRedo) btnRedo.addEventListener("click", redo);
 
-window.addEventListener("keydown", (e) => {
-  const isMac = navigator.platform.toLowerCase().includes("mac");
-  const mod = isMac ? e.metaKey : e.ctrlKey;
-
-  if (mod && !e.shiftKey && e.key.toLowerCase() === "z") {
-    e.preventDefault();
-    undo();
-    return;
-  }
-  if ((mod && e.shiftKey && e.key.toLowerCase() === "z") || (mod && e.key.toLowerCase() === "y")) {
-    e.preventDefault();
-    redo();
-    return;
-  }
-});
-
 /* ===================== [SEKCJA 7] SZABLONY ===================== */
 async function fetchJsonFirstOk(urls) {
   let lastErr = null;
@@ -852,7 +834,6 @@ function sanitizeFileBase(raw) {
     .slice(0, 60) || "projekt";
 }
 
-// PODGLĄD: JPG q=0.70
 if (btnDownloadPreview) {
   btnDownloadPreview.addEventListener("click", () => {
     const a = document.createElement("a");
@@ -1057,8 +1038,8 @@ function openNickModal() {
   document.body.style.overflow = "hidden";
 }
 
-function closeNickModal() {
-  pendingSendAfterNick = false;
+function closeNickModal(opts = { cancel: false }) {
+  if (opts?.cancel) pendingSendAfterNick = false;
   if (!nickModal) return;
 
   const ae = document.activeElement;
@@ -1094,21 +1075,24 @@ function confirmNickFromModal() {
   if (nickInput) nickInput.value = v;
   if (nickModalInput) nickModalInput.style.borderColor = "#e5e7eb";
 
-  closeNickModal();
+  const shouldSend = pendingSendAfterNick === true;
 
-  if (pendingSendAfterNick) {
+  // zamykamy bez kasowania flagi "pending"
+  closeNickModal({ cancel: false });
+
+  if (shouldSend) {
     pendingSendAfterNick = false;
     sendToProduction(true);
   }
 }
 
-if (nickModalClose) nickModalClose.addEventListener("click", closeNickModal);
-if (nickModalCancel) nickModalCancel.addEventListener("click", closeNickModal);
+if (nickModalClose) nickModalClose.addEventListener("click", () => closeNickModal({ cancel: true }));
+if (nickModalCancel) nickModalCancel.addEventListener("click", () => closeNickModal({ cancel: true }));
 if (nickModalSave) nickModalSave.addEventListener("click", confirmNickFromModal);
 
 if (nickModal) {
   nickModal.addEventListener("click", (e) => {
-    if (e.target === nickModal) closeNickModal();
+    if (e.target === nickModal) closeNickModal({ cancel: true });
   });
 }
 
@@ -1117,7 +1101,7 @@ window.addEventListener("keydown", (e) => {
 
   if (e.key === "Escape") {
     e.preventDefault();
-    closeNickModal();
+    closeNickModal({ cancel: true });
     return;
   }
   if (e.key === "Enter") {
@@ -1131,20 +1115,17 @@ window.addEventListener("keydown", (e) => {
 async function sendToProduction(skipNickCheck = false) {
   if (productionLocked) return;
 
-  // 1) zdjęcie
   if (!uploadedImg) {
     toast("Najpierw wgraj zdjęcie.");
     return;
   }
 
-  // 2) nick
   const nick = (nickInput?.value || "").trim();
   if (!skipNickCheck && !nick) {
     openNickModal();
     return;
   }
 
-  // 3) potwierdzenia
   const first = window.confirm("Czy na pewno chcesz wysłać projekt do realizacji?");
   if (!first) return;
 
@@ -1195,4 +1176,4 @@ if (btnSendToProduction) {
   pushHistory();
 })();
 
-/* === KONIEC PLIKU — editor/editor.js === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-05 === */
