@@ -1,8 +1,8 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-06
- * - Fix: sanitize nicka -> zostawia polskie znaki (Unicode)
+ * FILE_VERSION: 2026-02-09-07
+ * - Fix: sanitize nicka -> zostawia polskie znaki (bez \p{L})
  * ============================================================
  */
 
@@ -22,7 +22,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-06";
+const CACHE_VERSION = "2026-02-09-07";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -245,15 +245,9 @@ function maybeWarnQuality(force = false) {
   qualityWarnLevel = level;
 
   if (level === 2) {
-    toast(
-      `Uwaga: jakość może być słaba (ok. ${Math.round(dpi)} DPI). ` +
-      `Najlepiej wygląda zdjęcie z oryginału. Komunikatory często kompresują.`
-    );
+    toast(`Uwaga: jakość może być słaba (ok. ${Math.round(dpi)} DPI).`);
   } else if (level === 1) {
-    toast(
-      `Uwaga: zdjęcie ma średnią jakość (ok. ${Math.round(dpi)} DPI). ` +
-      `Jeśli możesz, użyj oryginału.`
-    );
+    toast(`Uwaga: zdjęcie ma średnią jakość (ok. ${Math.round(dpi)} DPI).`);
   }
 }
 
@@ -493,7 +487,7 @@ if (photoInput) {
   });
 }
 
-/* ===================== [SEKCJA 6B] DRAG + ZOOM ===================== */
+/* ===================== [DRAG + ZOOM] ===================== */
 function clientToCanvasPx(clientX, clientY) {
   const r = canvas.getBoundingClientRect();
   const scale = CANVAS_PX / r.width;
@@ -701,7 +695,7 @@ function wheelHistoryCommit() {
   }, 180);
 }
 
-/* ===================== [SEKCJA 6C] TOOLBAR ===================== */
+/* ===================== [TOOLBAR] ===================== */
 if (btnFit) btnFit.addEventListener("click", fitToCover);
 if (btnCenter) btnCenter.addEventListener("click", centerPhoto);
 
@@ -826,29 +820,33 @@ function clearTemplateSelection(opts = {}) {
   if (!opts.skipHistory) pushHistory();
 }
 
-/* ===================== [SEKCJA 8] EKSPORT ===================== */
-
-/** Zostawia Unicode (w tym PL), usuwa tylko znaki ryzykowne dla nazw plików */
-function sanitizeNickUnicode(raw, fallback = "projekt") {
+/* ===================== [SEKCJA 8] EKSPORT / SANITIZE ===================== */
+/**
+ * Bezpieczna nazwa: zostawiamy litery/cyfry + spacja . _ - oraz PL znaki.
+ * (bez Unicode property escapes, żeby działało wszędzie)
+ */
+function sanitizeNickPl(raw, fallback = "projekt") {
   let s = String(raw || "").trim();
   if (!s) return fallback;
 
-  // usuń znaki "niebezpieczne" w nazwach plików/identyfikatorach
-  // zostaw: litery (Unicode), cyfry (Unicode), spacje, myślnik, podkreślenie, kropka
   s = s.normalize("NFC");
-  s = s.replace(/[^\p{L}\p{N}\s._-]+/gu, "");
 
-  // spacje -> pojedyncze podkreślenia
+  // usuń znaki niebezpieczne, zostaw: A-Z a-z 0-9, spacje, ._- oraz PL: ĄĆĘŁŃÓŚŹŻ i małe
+  s = s.replace(/[^0-9A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż\s._-]+/g, "");
+
   s = s.replace(/\s+/g, "_").replace(/_+/g, "_");
 
-  // utnij długość
   s = s.slice(0, 60);
-
   return s || fallback;
 }
 
 function sanitizeFileBase(raw) {
-  return sanitizeNickUnicode(raw, "projekt");
+  return sanitizeNickPl(raw, "projekt");
+}
+
+function sanitizeOrderId(raw) {
+  // order_id: też zostawiamy PL znaki (jak wyżej), tylko fallback pusty
+  return sanitizeNickPl(raw, "").slice(0, 60);
 }
 
 if (btnDownloadPreview) {
@@ -965,7 +963,7 @@ function renderProductionJpgBlob() {
 }
 
 function buildProjectJson() {
-  const nick = (nickInput?.value || "").trim();
+  const nick = (nickInput?.value || "").trim(); // tu zostaje ORYGINAŁ (z polskimi znakami)
   const dpi = getEffectiveDpi();
   return JSON.stringify(
     {
@@ -981,10 +979,6 @@ function buildProjectJson() {
     null,
     2
   );
-}
-
-function sanitizeOrderId(raw) {
-  return sanitizeNickUnicode(raw, "").slice(0, 60);
 }
 
 async function uploadToServer(blob, jsonText, filename) {
@@ -1161,7 +1155,7 @@ async function sendToProduction(skipNickCheck = false) {
     );
   } catch (err) {
     console.error(err);
-    toast("Błąd wysyłania. Spróbuj ponownie albo skontaktuj się z obsługą.");
+    toast("Błąd wysyłania. Spróbuj ponownie.");
     setUiLocked(false);
   }
 }
@@ -1170,7 +1164,7 @@ if (btnSendToProduction) {
   btnSendToProduction.addEventListener("click", () => sendToProduction(false));
 }
 
-/* ===================== [SEKCJA 9] START ===================== */
+/* ===================== [START] ===================== */
 (async function init() {
   await setShape("square", { skipHistory: true });
   clearTemplateSelection({ skipHistory: true });
@@ -1189,4 +1183,4 @@ if (btnSendToProduction) {
   pushHistory();
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-06 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-07 === */
