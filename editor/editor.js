@@ -1,7 +1,9 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-13
+ * FILE_VERSION: 2026-02-09-14
+ * - Future-proof: nick/order_id z URL + stabilny kontrakt JSON (schema_version)
+ * - Stabilność: wersja UI ustawiana z editor.js (bez inline-script race)
  * - Self-test: twarda walidacja wymaganych elementów DOM
  * - Debug helpers: __CHECK_DOM__(), __CHECK_ENDPOINTS__()
  * - Produkcja: blokada UI + busy overlay + retry overlay
@@ -26,7 +28,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-13";
+const CACHE_VERSION = "2026-02-09-14";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -46,6 +48,42 @@ function dlog(...args) {
 
 function derr(...args) {
   console.error("[EDITOR]", ...args);
+}
+
+/* ===================== [SEKCJA 1B] URL PARAMS (NICK/ORDER) ===================== */
+function _parseHashParams() {
+  const h = (location.hash || "").replace(/^#/, "").trim();
+  if (!h) return new URLSearchParams();
+  // wspieramy zarówno "a=b&c=d" jak i pojedynczą wartość (ignorujemy)
+  try {
+    return new URLSearchParams(h.includes("=") ? h : "");
+  } catch {
+    return new URLSearchParams();
+  }
+}
+
+function getUrlParamAny(keys) {
+  const sp = new URLSearchParams(location.search || "");
+  const hp = _parseHashParams();
+
+  for (const k of keys) {
+    const v1 = sp.get(k);
+    if (typeof v1 === "string" && v1.trim()) return v1.trim();
+
+    const v2 = hp.get(k);
+    if (typeof v2 === "string" && v2.trim()) return v2.trim();
+  }
+  return "";
+}
+
+function getNickFromUrl() {
+  // priorytet: nick → n → order → order_id (ostatnie jako fallback)
+  return getUrlParamAny(["nick", "n", "order", "order_id"]);
+}
+
+function getOrderIdFromUrl() {
+  // priorytet: order_id → order
+  return getUrlParamAny(["order_id", "order"]);
 }
 
 /**
@@ -198,6 +236,13 @@ const nickModalHint = document.getElementById("nickModalHint");
 // touch
 canvas.style.touchAction = "none";
 
+/* ===================== [SEKCJA 2A] WERSJA W UI ===================== */
+function updateUiVersionBadge() {
+  const el = document.getElementById("appVersion");
+  if (!el) return;
+  el.textContent = " • v" + CACHE_VERSION;
+}
+
 /* ===================== [SEKCJA 2B] MASKA PNG ===================== */
 let maskEl = null;
 
@@ -236,6 +281,24 @@ function applyMaskForShape(nextShape) {
   const raw = nextShape === "circle" ? MASK_URLS.circle : MASK_URLS.square;
   el.style.display = "block";
   el.src = withV(raw);
+}
+
+/* ===================== [SEKCJA 2C] NICK/ORDER ID Z URL ===================== */
+const urlNickRaw = getNickFromUrl();
+const urlOrderIdRaw = getOrderIdFromUrl();
+
+function applyNickFromUrlIfEmpty() {
+  if (!nickInput) return;
+
+  const current = (nickInput.value || "").trim();
+  if (current) return;
+
+  // preferujemy jawny nick, ale jeśli go nie ma, możemy wstawić order_id jako UX fallback
+  const v = (urlNickRaw || urlOrderIdRaw || "").trim();
+  if (!v) return;
+
+  nickInput.value = v;
+  // UWAGA: to ustawienie "z URL" nie powinno brudzić (nie jest zmianą użytkownika)
 }
 
 /* ===================== [SEKCJA 3] STAN ===================== */
@@ -1149,29 +1212,90 @@ function renderProductionJpgBlob() {
   return renderProductionWithPrintOverlayToBlob("image/jpeg", 1.0);
 }
 
+/* ===================== [PROJECT JSON CONTRACT] ===================== */
+const PROJECT_JSON_SCHEMA_VERSION = 1;
+
+function roundNum(x, digits = 6) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return null;
+  const m = Math.pow(10, digits);
+  return Math.round(n * m) / m;
+}
+
 function buildProjectJson() {
   const nick = (nickInput?.value || "").trim();
   const dpi = getEffectiveDpi();
-  return JSON.stringify(
-    {
-      cache_version: CACHE_VERSION,
-      ts_iso: new Date().toISOString(),
-      nick,
-      shape,
-      template: currentTemplate ? { id: currentTemplate.id, name: currentTemplate.name || currentTemplate.id } : null,
-      transform: { coverScale, userScale, offsetX, offsetY },
-      dpi: dpi == null ? null : Math.round(dpi),
-      url: location.href
+  const orderId =
+    sanitizeOrderId(urlOrderIdRaw) ||
+    sanitizeOrderId(nick) ||
+    "";
+
+  const nowIso = new Date().toISOString();
+
+  const payload = {
+    schema_version: PROJECT_JSON_SCHEMA_VERSION,
+
+    app: {
+      name: "coaster-editor",
+      version: CACHE_VERSION,
+      repo_base: REPO_BASE,
     },
-    null,
-    2
-  );
+
+    created_at_iso: nowIso,
+    source_url: location.href,
+
+    order: {
+      nick: nick || "",
+      order_id: orderId || "",
+      // surowe (do diagnostyki / audytu)
+      url_nick_raw: urlNickRaw || "",
+      url_order_id_raw: urlOrderIdRaw || "",
+    },
+
+    product: {
+      type: "coaster",
+      shape: shape,
+      size_mm: { w: 100, h: 100 }, // 10×10 cm (spad w osobnym procesie)
+    },
+
+    template: currentTemplate
+      ? { id: String(currentTemplate.id || ""), name: String(currentTemplate.name || currentTemplate.id || "") }
+      : null,
+
+    transform: {
+      coverScale: roundNum(coverScale, 8),
+      userScale: roundNum(userScale, 8),
+      offsetX: roundNum(offsetX, 3),
+      offsetY: roundNum(offsetY, 3),
+      canvas_px: CANVAS_PX,
+      print_dpi: PRINT_DPI,
+      cut_ratio: CUT_RATIO,
+    },
+
+    quality: {
+      effective_dpi: dpi == null ? null : Math.round(dpi),
+      label: qualityLabelFromDpi(dpi),
+    },
+
+    // legacy (kompatybilność wsteczna – zostawiamy)
+    cache_version: CACHE_VERSION,
+    ts_iso: nowIso,
+    nick: nick,
+    shape: shape,
+    dpi: dpi == null ? null : Math.round(dpi),
+    url: location.href,
+  };
+
+  return JSON.stringify(payload, null, 2);
 }
 
 async function uploadToServer(blob, jsonText, filename) {
   const fd = new FormData();
 
-  const orderId = sanitizeOrderId(nickInput?.value || "");
+  const orderId =
+    sanitizeOrderId(urlOrderIdRaw) ||
+    sanitizeOrderId(nickInput?.value || "");
+
   if (orderId) fd.append("order_id", orderId);
 
   fd.append("png", blob, filename);
@@ -1417,6 +1541,9 @@ if (errorOverlay) {
 
 /* ===================== [START] ===================== */
 (async function init() {
+  updateUiVersionBadge();
+  applyNickFromUrlIfEmpty();
+
   await setShape("square", { skipHistory: true });
   clearTemplateSelection({ skipHistory: true });
 
@@ -1433,9 +1560,10 @@ if (errorOverlay) {
   updateStatusBar();
   pushHistory();
 
+  // po autouzupełnieniu nicka z URL nadal startujemy jako "clean"
   markClean();
 
-  dlog("Loaded", { CACHE_VERSION, DEBUG });
+  dlog("Loaded", { CACHE_VERSION, DEBUG, urlNickRaw, urlOrderIdRaw });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-13 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-14 === */
