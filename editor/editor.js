@@ -1,10 +1,8 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-15
- * - UX: przyciski obrotu zdjęcia (±30° + reset)
- * - Stabilność: obrót z zachowaniem cover (bez pustych rogów) + clamp dla rotacji
- * - Future-proof: rotation_deg w JSON + w historii undo/redo
+ * FILE_VERSION: 2026-02-09-16
+ * - Theme: jasny/ciemny (URL ?theme=dark|light + localStorage + prefers-color-scheme)
  * ============================================================
  */
 
@@ -24,7 +22,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-15";
+const CACHE_VERSION = "2026-02-09-16";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -41,9 +39,75 @@ const DEBUG =
 function dlog(...args) {
   if (DEBUG) console.log("[EDITOR]", ...args);
 }
-
 function derr(...args) {
   console.error("[EDITOR]", ...args);
+}
+
+/* ===================== [THEME] ===================== */
+const THEME_KEY = "EDITOR_THEME"; // "light" | "dark"
+
+function getQueryParam(name) {
+  try {
+    const sp = new URLSearchParams(location.search || "");
+    const v = sp.get(name);
+    return (v || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function systemPrefersDark() {
+  try {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeTheme(v) {
+  const x = String(v || "").toLowerCase().trim();
+  if (x === "dark" || x === "ciemny") return "dark";
+  if (x === "light" || x === "jasny") return "light";
+  return "";
+}
+
+function applyTheme(theme, { persist = true } = {}) {
+  const t = normalizeTheme(theme) || "light";
+  document.documentElement.dataset.theme = t;
+
+  // UI buttons (opcjonalne)
+  const bL = document.getElementById("btnThemeLight");
+  const bD = document.getElementById("btnThemeDark");
+  if (bL) bL.classList.toggle("active", t === "light");
+  if (bD) bD.classList.toggle("active", t === "dark");
+
+  if (persist) {
+    try { localStorage.setItem(THEME_KEY, t); } catch {}
+  }
+}
+
+function initTheme() {
+  const fromUrl = normalizeTheme(getQueryParam("theme"));
+  if (fromUrl) {
+    applyTheme(fromUrl, { persist: true });
+    return;
+  }
+
+  let fromStorage = "";
+  try { fromStorage = normalizeTheme(localStorage.getItem(THEME_KEY)); } catch {}
+  if (fromStorage) {
+    applyTheme(fromStorage, { persist: false });
+    return;
+  }
+
+  applyTheme(systemPrefersDark() ? "dark" : "light", { persist: false });
+}
+
+function wireThemeButtons() {
+  const bL = document.getElementById("btnThemeLight");
+  const bD = document.getElementById("btnThemeDark");
+  if (bL) bL.addEventListener("click", () => applyTheme("light", { persist: true }));
+  if (bD) bD.addEventListener("click", () => applyTheme("dark", { persist: true }));
 }
 
 /* ===================== [SEKCJA 1B] URL PARAMS (NICK/ORDER) ===================== */
@@ -103,7 +167,6 @@ function checkRequiredDom() {
   const ok = missing.length === 0;
 
   const report = { ok, missing, cache_version: CACHE_VERSION };
-
   window.__CHECK_DOM__ = () => report;
 
   if (!ok) {
@@ -114,39 +177,8 @@ function checkRequiredDom() {
         "\n\nSprawdź, czy wkleiłeś pełny plik index.html."
     );
   }
-
   return report;
 }
-
-async function checkEndpoints() {
-  const urls = {
-    templates_php: `${REPO_BASE}/api/templates.php`,
-    templates_list: `${REPO_BASE}/assets/templates/list.json`,
-    templates_index: `${REPO_BASE}/assets/templates/index.json`,
-    upload: `${REPO_BASE}/api/upload.php`,
-  };
-
-  const out = { cache_version: CACHE_VERSION, results: {} };
-
-  const tryFetch = async (key, url) => {
-    try {
-      const res = await fetch(withV(url), { cache: "no-store" });
-      out.results[key] = { ok: true, status: res.status };
-    } catch (e) {
-      out.results[key] = { ok: false, error: String(e) };
-    }
-  };
-
-  await tryFetch("templates_php", urls.templates_php);
-  await tryFetch("templates_list", urls.templates_list);
-  await tryFetch("templates_index", urls.templates_index);
-  await tryFetch("upload", urls.upload);
-
-  window.__CHECK_ENDPOINTS__ = async () => out;
-  return out;
-}
-
-window.__CHECK_ENDPOINTS__ = async () => checkEndpoints();
 
 /**
  * Docelowe maski:
@@ -220,6 +252,7 @@ const nickModalCancel = document.getElementById("nickModalCancel");
 const nickModalSave = document.getElementById("nickModalSave");
 const nickModalHint = document.getElementById("nickModalHint");
 
+// touch
 canvas.style.touchAction = "none";
 
 /* ===================== [SEKCJA 2A] WERSJA W UI ===================== */
@@ -275,7 +308,6 @@ const urlOrderIdRaw = getOrderIdFromUrl();
 
 function applyNickFromUrlIfEmpty() {
   if (!nickInput) return;
-
   const current = (nickInput.value || "").trim();
   if (current) return;
 
@@ -296,8 +328,8 @@ let userScale = 1;
 let offsetX = 0;
 let offsetY = 0;
 
-// NOWE: obrót
-let rotationDeg = 0; // -180..180 (normalizujemy)
+// obrót
+let rotationDeg = 0; // -180..180
 function normDeg(d) {
   let x = Number(d) || 0;
   x = ((x % 360) + 360) % 360;
@@ -526,7 +558,7 @@ async function applyStateFromHistory(snap) {
   }
 
   rotationDeg = normDeg(snap.rotationDeg);
-  ensureCoverScaleForRotation(); // klucz przy rotacji
+  ensureCoverScaleForRotation();
 
   userScale = clamp(snap.userScale, MIN_USER_SCALE, MAX_USER_SCALE);
   offsetX = snap.offsetX;
@@ -580,15 +612,9 @@ function clear() {
   ctx.fillRect(0, 0, CANVAS_PX, CANVAS_PX);
 }
 
-/**
- * Przy obrocie utrzymujemy "cover" licząc minimalny coverScale dla danego kąta.
- * Sprowadza się do warunku: AABB obróconego prostokąta ma przykryć kwadrat CANVAS.
- */
 function requiredScaleForRotation(iw, ih, rad) {
   const c = Math.abs(Math.cos(rad));
   const s = Math.abs(Math.sin(rad));
-
-  // warunek na oś X i oś Y (AABB po obrocie)
   const sx = CANVAS_PX / (c * iw + s * ih);
   const sy = CANVAS_PX / (s * iw + c * ih);
   return Math.max(sx, sy);
@@ -599,15 +625,9 @@ function ensureCoverScaleForRotation() {
   const iw = uploadedImg.naturalWidth;
   const ih = uploadedImg.naturalHeight;
   const rad = degToRad(rotationDeg);
-
-  // coverScale jest bazą (przy userScale=1). userScale zostawiamy użytkownikowi.
   coverScale = requiredScaleForRotation(iw, ih, rad);
 }
 
-/**
- * Clamp przesunięć dla obrotu:
- * Liczymy AABB obróconego obrazu (po skali) i dopinamy środek tak, by AABB przykrywało canvas.
- */
 function applyClampToOffsets() {
   if (!uploadedImg) return;
 
@@ -622,14 +642,12 @@ function applyClampToOffsets() {
   const w = iw * scale;
   const h = ih * scale;
 
-  const ex = (c * w + s * h) / 2; // half-extent AABB X
-  const ey = (s * w + c * h) / 2; // half-extent AABB Y
+  const ex = (c * w + s * h) / 2;
+  const ey = (s * w + c * h) / 2;
 
-  // środek obrazka w układzie canvas
   let cx = CANVAS_PX / 2 + offsetX;
   let cy = CANVAS_PX / 2 + offsetY;
 
-  // żeby przykryć całość: cx musi być w [CANVAS-ex, ex] (gdy ex >= CANVAS/2)
   const minCx = CANVAS_PX - ex;
   const maxCx = ex;
   const minCy = CANVAS_PX - ey;
@@ -678,7 +696,6 @@ function resetPhotoTransformToCover() {
   if (!uploadedImg) return;
 
   rotationDeg = 0;
-
   ensureCoverScaleForRotation();
 
   userScale = 1.0;
@@ -725,8 +742,6 @@ function setRotation(nextDeg, opts = {}) {
   }
 
   rotationDeg = normDeg(nextDeg);
-
-  // coverScale musi się zmienić przy rotacji (żeby nie było pustych rogów)
   ensureCoverScaleForRotation();
 
   applyClampToOffsets();
@@ -756,13 +771,10 @@ function clientToCanvasPx(clientX, clientY) {
   return { x, y };
 }
 
-function setUserScaleKeepingPoint(newUserScale, anchorPxX, anchorPxY) {
+function setUserScaleKeepingPoint(newUserScale) {
   if (!uploadedImg) return;
 
   newUserScale = clamp(newUserScale, MIN_USER_SCALE, MAX_USER_SCALE);
-
-  // anchor traktujemy w przestrzeni canvas (bez wchodzenia w geometrię obrotu),
-  // a finalnie i tak clamp dopina "cover".
   userScale = newUserScale;
 
   applyClampToOffsets();
@@ -817,10 +829,6 @@ function distance(a, b) {
   return Math.hypot(dx, dy);
 }
 
-function mid(a, b) {
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-}
-
 canvas.addEventListener("pointerdown", (e) => {
   if (!uploadedImg) return;
 
@@ -859,12 +867,11 @@ canvas.addEventListener("pointermove", (e) => {
   if (pointers.size === 2) {
     const pts = Array.from(pointers.values());
     const d = distance(pts[0], pts[1]);
-    const c = mid(pts[0], pts[1]);
 
     if (pinchStartDist > 0) {
       const factor = d / pinchStartDist;
       const nextScale = pinchStartScale * factor;
-      setUserScaleKeepingPoint(nextScale, c.x, c.y);
+      setUserScaleKeepingPoint(nextScale);
       gestureMoved = true;
     }
     e.preventDefault();
@@ -926,7 +933,7 @@ canvas.addEventListener(
     if (!uploadedImg) return;
 
     const zoom = e.deltaY < 0 ? 1.08 : 1 / 1.08;
-    setUserScaleKeepingPoint(userScale * zoom, CANVAS_PX / 2, CANVAS_PX / 2);
+    setUserScaleKeepingPoint(userScale * zoom);
 
     wheelHistoryCommit();
     e.preventDefault();
@@ -951,7 +958,7 @@ if (btnCenter) btnCenter.addEventListener("click", centerPhoto);
 if (btnZoomIn) {
   btnZoomIn.addEventListener("click", () => {
     if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
-    setUserScaleKeepingPoint(userScale * 1.12, CANVAS_PX / 2, CANVAS_PX / 2);
+    setUserScaleKeepingPoint(userScale * 1.12);
     pushHistory();
     markDirty();
   });
@@ -960,7 +967,7 @@ if (btnZoomIn) {
 if (btnZoomOut) {
   btnZoomOut.addEventListener("click", () => {
     if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
-    setUserScaleKeepingPoint(userScale / 1.12, CANVAS_PX / 2, CANVAS_PX / 2);
+    setUserScaleKeepingPoint(userScale / 1.12);
     pushHistory();
     markDirty();
   });
@@ -1126,6 +1133,7 @@ function setUiLocked(locked, busyMsg = "Trwa operacja…") {
     "btnUndo", "btnRedo",
     "btnZoomOut", "btnZoomIn", "btnFit", "btnCenter",
     "btnRotateLeft", "btnRotateRight", "btnRotateReset",
+    "btnThemeLight", "btnThemeDark",
     "btnDownloadPreview",
     "btnSendToProduction"
   ];
@@ -1249,7 +1257,6 @@ function renderProductionJpgBlob() {
   return renderProductionWithPrintOverlayToBlob("image/jpeg", 1.0);
 }
 
-/* ===================== [PROJECT JSON CONTRACT] ===================== */
 const PROJECT_JSON_SCHEMA_VERSION = 1;
 
 function roundNum(x, digits = 6) {
@@ -1271,13 +1278,7 @@ function buildProjectJson() {
 
   const payload = {
     schema_version: PROJECT_JSON_SCHEMA_VERSION,
-
-    app: {
-      name: "coaster-editor",
-      version: CACHE_VERSION,
-      repo_base: REPO_BASE,
-    },
-
+    app: { name: "coaster-editor", version: CACHE_VERSION, repo_base: REPO_BASE },
     created_at_iso: nowIso,
     source_url: location.href,
 
@@ -1288,11 +1289,7 @@ function buildProjectJson() {
       url_order_id_raw: urlOrderIdRaw || "",
     },
 
-    product: {
-      type: "coaster",
-      shape: shape,
-      size_mm: { w: 100, h: 100 },
-    },
+    product: { type: "coaster", shape: shape, size_mm: { w: 100, h: 100 } },
 
     template: currentTemplate
       ? { id: String(currentTemplate.id || ""), name: String(currentTemplate.name || currentTemplate.id || "") }
@@ -1309,12 +1306,9 @@ function buildProjectJson() {
       cut_ratio: CUT_RATIO,
     },
 
-    quality: {
-      effective_dpi: dpi == null ? null : Math.round(dpi),
-      label: qualityLabelFromDpi(dpi),
-    },
+    quality: { effective_dpi: dpi == null ? null : Math.round(dpi), label: qualityLabelFromDpi(dpi) },
 
-    // legacy (kompatybilność wsteczna)
+    // legacy
     cache_version: CACHE_VERSION,
     ts_iso: nowIso,
     nick: nick,
@@ -1525,7 +1519,6 @@ async function sendToProduction(skipNickCheck = false) {
     await uploadToServer(jpgBlob, jsonText, "projekt_PRINT.jpg");
 
     markClean();
-
     setBusyOverlay(false);
 
     showFinalOverlay(
@@ -1534,7 +1527,6 @@ async function sendToProduction(skipNickCheck = false) {
     );
   } catch (err) {
     derr(err);
-
     setUiLocked(false);
 
     const msg =
@@ -1550,7 +1542,6 @@ async function sendToProduction(skipNickCheck = false) {
 if (btnSendToProduction) {
   btnSendToProduction.addEventListener("click", () => sendToProduction(false));
 }
-
 if (nickInput) {
   nickInput.addEventListener("input", () => markDirty());
 }
@@ -1577,6 +1568,9 @@ if (errorOverlay) {
 
 /* ===================== [START] ===================== */
 (async function init() {
+  initTheme();
+  wireThemeButtons();
+
   updateUiVersionBadge();
   applyNickFromUrlIfEmpty();
 
@@ -1597,8 +1591,7 @@ if (errorOverlay) {
   pushHistory();
 
   markClean();
-
-  dlog("Loaded", { CACHE_VERSION, DEBUG, urlNickRaw, urlOrderIdRaw });
+  dlog("Loaded", { CACHE_VERSION, DEBUG });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-15 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-16 === */
