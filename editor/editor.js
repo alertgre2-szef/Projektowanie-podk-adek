@@ -1,9 +1,10 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-18
- * - Kłódka kadru: możliwość swobodnego przesuwania zdjęcia poza kadr (po ostrzeżeniu)
- * - Historia: zapisuje stan kłódki
+ * FILE_VERSION: 2026-02-09-21
+ * - Kłódka kadru: pomniejszanie poniżej 100% tylko po odblokowaniu 🔓
+ * - Po ponownym zablokowaniu 🔒: jeśli zoom < 100% -> wraca do 100% i clamp
+ * - Historia: respektuje min zoom zależny od kłódki
  * - Reszta: jak poprzednio (theme/rotate/json/UX)
  * ============================================================
  */
@@ -24,7 +25,7 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-18";
+const CACHE_VERSION = "2026-02-09-21";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -314,11 +315,17 @@ function normDeg(d) {
 }
 function degToRad(d) { return (d * Math.PI) / 180; }
 
-const MIN_USER_SCALE = 1.0;
-const MAX_USER_SCALE = 6.0;
-
 // kłódka kadru
 let freeMove = false; // false = clamp (bezpiecznie), true = swobodnie
+
+// ✅ min zoom zależny od kłódki
+const MIN_USER_SCALE_LOCKED = 1.0;  // 🔒
+const MIN_USER_SCALE_FREE = 0.10;   // 🔓 (możesz ustawić 0.05, jeśli chcesz)
+const MAX_USER_SCALE = 6.0;
+
+function getMinUserScale() {
+  return freeMove ? MIN_USER_SCALE_FREE : MIN_USER_SCALE_LOCKED;
+}
 
 /* ===================== [DIRTY STATE] ===================== */
 let isDirty = false;
@@ -474,19 +481,24 @@ function setFreeMove(next, { silent = false, skipHistory = false } = {}) {
   if (n === true && freeMove === false && !silent) {
     const ok = window.confirm(
       "Odblokować kadr?\n\n" +
-      "To pozwala przesuwać zdjęcie poza obszar projektu (przy ramkach może pomóc ustawić twarze w okienku).\n\n" +
+      "To pozwala przesuwać zdjęcie poza obszar projektu ORAZ pomniejszać poniżej 100%.\n\n" +
       "UWAGA: możesz przypadkowo ustawić zdjęcie tak, że w druku wyjdą puste/białe pola albo ważne elementy wypadną.\n\n" +
       "Kontynuować?"
     );
     if (!ok) return;
-    toast("Kadr odblokowany — możesz przesuwać swobodnie. ⚠️");
+    toast("Kadr odblokowany — możesz przesuwać i pomniejszać swobodnie. ⚠️");
   }
 
   freeMove = n;
   syncFreeMoveButton();
 
-  // Po ponownym zablokowaniu — natychmiast dociskamy do bezpiecznego zakresu
-  if (!freeMove) applyClampToOffsets();
+  // Po ponownym zablokowaniu:
+  // - jeśli zoom jest < 100%, wróć do 100% (bezpiecznie)
+  // - dociśnij offsety
+  if (!freeMove) {
+    if (userScale < MIN_USER_SCALE_LOCKED) userScale = MIN_USER_SCALE_LOCKED;
+    applyClampToOffsets();
+  }
 
   redraw();
   updateStatusBar();
@@ -578,7 +590,7 @@ async function applyStateFromHistory(snap) {
   freeMove = !!snap.freeMove;
   syncFreeMoveButton();
 
-  userScale = clamp(snap.userScale, MIN_USER_SCALE, MAX_USER_SCALE);
+  userScale = clamp(snap.userScale, getMinUserScale(), MAX_USER_SCALE);
   offsetX = snap.offsetX;
   offsetY = snap.offsetY;
 
@@ -798,7 +810,7 @@ function clientToCanvasPx(clientX, clientY) {
 function setUserScaleKeepingPoint(newUserScale) {
   if (!uploadedImg) return;
 
-  newUserScale = clamp(newUserScale, MIN_USER_SCALE, MAX_USER_SCALE);
+  newUserScale = clamp(newUserScale, getMinUserScale(), MAX_USER_SCALE);
   userScale = newUserScale;
 
   applyClampToOffsets();
@@ -816,8 +828,6 @@ function fitToCover() {
   offsetX = 0;
   offsetY = 0;
 
-  // w trybie swobodnym też nie clampujemy (zgodnie z ideą),
-  // ale "Dopasuj" ma sens jako szybki reset do środka:
   if (!freeMove) applyClampToOffsets();
 
   redraw();
@@ -997,6 +1007,13 @@ if (btnZoomIn) {
 if (btnZoomOut) {
   btnZoomOut.addEventListener("click", () => {
     if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
+
+    // UX: podpowiedź tylko dla kliknięcia "-", bez spamu na wheel/pinch
+    if (!freeMove && userScale <= MIN_USER_SCALE_LOCKED + 1e-6) {
+      toast("Aby bardziej pomniejszyć, odblokuj 🔓 Kadr.");
+      return;
+    }
+
     setUserScaleKeepingPoint(userScale / 1.12);
     pushHistory();
     markDirty();
@@ -1532,7 +1549,7 @@ async function sendToProduction(skipNickCheck = false) {
   // dodatkowe ostrzeżenie, jeśli kadr odblokowany
   if (freeMove) {
     const ok = window.confirm(
-      "Uwaga: kadr jest odblokowany (swobodne przesuwanie).\n\n" +
+      "Uwaga: kadr jest odblokowany (swobodne przesuwanie/pomniejszanie).\n\n" +
       "Upewnij się, że w okienku szablonu nie ma pustych/białych pól i że ważne elementy nie wypadają.\n\n" +
       "Kontynuować?"
     );
@@ -1640,4 +1657,4 @@ if (errorOverlay) {
   dlog("Loaded", { CACHE_VERSION, DEBUG });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-18 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-21 === */
