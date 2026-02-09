@@ -1,8 +1,9 @@
 /**
  * ============================================================
  * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-09-09
- * - Fix: nazwy plików/order_id NIE gubią polskich znaków (usuwamy tylko znaki zakazane w nazwach plików)
+ * FILE_VERSION: 2026-02-09-11
+ * - Self-test: twarda walidacja wymaganych elementów DOM
+ * - Debug helpers: __CHECK_DOM__(), __CHECK_ENDPOINTS__()
  * ============================================================
  */
 
@@ -22,13 +23,109 @@ const REPO_BASE = (() => {
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-09";
+const CACHE_VERSION = "2026-02-09-11";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
   return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
 }
 
+/** Debug toggle:
+ *  - dodaj ?debug=1 w URL albo localStorage.EDITOR_DEBUG = "1"
+ */
+const DEBUG =
+  (typeof location !== "undefined" && (location.search || "").includes("debug=1")) ||
+  (typeof localStorage !== "undefined" && localStorage.getItem("EDITOR_DEBUG") === "1");
+
+function dlog(...args) {
+  if (DEBUG) console.log("[EDITOR]", ...args);
+}
+
+function derr(...args) {
+  console.error("[EDITOR]", ...args);
+}
+
+/**
+ * Self-test: wymagane elementy DOM (krytyczne do działania).
+ * Modal jest opcjonalny (mamy fallback na toast/fokus).
+ */
+const REQUIRED_IDS = [
+  "canvas",
+  "preview",
+  "photoInput",
+  "nickInput",
+  "templateGrid",
+  "btnDownloadPreview",
+  "btnSendToProduction",
+  "toastContainer",
+  "statusBar",
+];
+
+function checkRequiredDom() {
+  const missing = [];
+  for (const id of REQUIRED_IDS) {
+    if (!document.getElementById(id)) missing.push(id);
+  }
+  const ok = missing.length === 0;
+
+  const report = { ok, missing, cache_version: CACHE_VERSION };
+
+  // helper do konsoli
+  window.__CHECK_DOM__ = () => report;
+
+  if (!ok) {
+    derr("Braki w DOM:", missing);
+    alert(
+      "BŁĄD: Brakuje elementów w index.html:\n\n- " +
+        missing.join("\n- ") +
+        "\n\nSprawdź, czy wkleiłeś pełny plik index.html."
+    );
+  }
+
+  return report;
+}
+
+/**
+ * Self-test endpointów (bez wysyłania projektu):
+ * - templates: sprawdzamy czy odpowiada (nie musi być 200 dla każdego, ważne że nie 404/ERR)
+ * - upload.php: sprawdzamy czy istnieje (GET zwykle da 401/405 — to OK)
+ */
+async function checkEndpoints() {
+  const urls = {
+    templates_php: `${REPO_BASE}/api/templates.php`,
+    templates_list: `${REPO_BASE}/assets/templates/list.json`,
+    templates_index: `${REPO_BASE}/assets/templates/index.json`,
+    upload: `${REPO_BASE}/api/upload.php`,
+  };
+
+  const out = { cache_version: CACHE_VERSION, results: {} };
+
+  const tryFetch = async (key, url) => {
+    try {
+      const res = await fetch(withV(url), { cache: "no-store" });
+      out.results[key] = { ok: true, status: res.status };
+    } catch (e) {
+      out.results[key] = { ok: false, error: String(e) };
+    }
+  };
+
+  await tryFetch("templates_php", urls.templates_php);
+  await tryFetch("templates_list", urls.templates_list);
+  await tryFetch("templates_index", urls.templates_index);
+  await tryFetch("upload", urls.upload);
+
+  window.__CHECK_ENDPOINTS__ = async () => out;
+  return out;
+}
+
+// Eksponujemy helpery (wygodne nawet bez debug)
+window.__CHECK_ENDPOINTS__ = async () => checkEndpoints();
+
+/**
+ * Docelowe maski:
+ * /editor/assets/masks/mask_square.png
+ * /editor/assets/masks/mask_circle.png
+ */
 const MASK_URLS = {
   square: `${REPO_BASE}/editor/assets/masks/mask_square.png`,
   circle: `${REPO_BASE}/editor/assets/masks/mask_circle.png`,
@@ -36,12 +133,17 @@ const MASK_URLS = {
 
 /* ===================== [UPLOAD DO REALIZACJI] ===================== */
 const UPLOAD_ENDPOINT = `${REPO_BASE}/api/upload.php`;
-const UPLOAD_TOKEN =
-  "4f9c7d2a8e1b5f63c0a9e72d41f8b6c39e5a0d7f1b2c8e4a6d9f3c1b7e0a2f5";
+const UPLOAD_TOKEN = "4f9c7d2a8e1b5f63c0a9e72d41f8b6c39e5a0d7f1b2c8e4a6d9f3c1b7e0a2f5";
 
 /* ===================== [SEKCJA 2] DOM ===================== */
+// Twarda walidacja DOM zanim cokolwiek podepniemy
+const domReport = checkRequiredDom();
+if (!domReport.ok) {
+  // przerywamy, żeby nie było losowych błędów null/addEventListener
+  throw new Error("Missing required DOM elements: " + domReport.missing.join(", "));
+}
+
 const canvas = document.getElementById("canvas");
-if (!canvas) throw new Error("Brak #canvas w DOM");
 const ctx = canvas.getContext("2d");
 
 const previewEl = document.getElementById("preview");
@@ -72,7 +174,7 @@ const finalOverlay = document.getElementById("finalOverlay");
 const finalOverlayTitle = document.getElementById("finalOverlayTitle");
 const finalOverlayMsg = document.getElementById("finalOverlayMsg");
 
-// MODAL nick
+// MODAL nick (opcjonalne)
 const nickModal = document.getElementById("nickModal");
 const nickModalInput = document.getElementById("nickModalInput");
 const nickModalClose = document.getElementById("nickModalClose");
@@ -801,7 +903,7 @@ async function applyTemplate(t, opts = {}) {
 
   img.onerror = () => {
     if (!opts.silentErrors) {
-      console.error("Nie mogę wczytać:", url);
+      derr("Nie mogę wczytać:", url);
       toast("Nie mogę wczytać szablonu.");
     }
   };
@@ -818,23 +920,14 @@ function clearTemplateSelection(opts = {}) {
 }
 
 /* ===================== [SEKCJA 8] EKSPORT / NAZWY ===================== */
-/**
- * Usuwamy WYŁĄCZNIE znaki zabronione w nazwach plików (Windows) + kontrolne.
- * Polskie litery zostają zawsze.
- */
 function safeFileToken(raw, fallback = "projekt") {
   let s = String(raw || "").trim();
   if (!s) return fallback;
 
   s = s.normalize("NFC");
 
-  // kontrolne + DEL
   s = s.replace(/[\u0000-\u001F\u007F]/g, "");
-
-  // znaki zakazane w nazwach plików (Windows)
   s = s.replace(/[\\\/:*?"<>|]/g, "_");
-
-  // porządki
   s = s.replace(/\s+/g, "_").replace(/_+/g, "_").replace(/^\.+/, "");
   s = s.slice(0, 60);
 
@@ -846,11 +939,10 @@ function sanitizeFileBase(raw) {
 }
 
 function sanitizeOrderId(raw) {
-  // wysyłamy do PHP jako "order_id" – z polskimi znakami, tylko bez zakazanych
   return safeFileToken(raw, "").slice(0, 60);
 }
 
-// szybki test w konsoli (tylko debug)
+// debug szybki test PL
 window.__TEST_PL__ = () => ({
   v: CACHE_VERSION,
   in: "łoś Żółć ąęłńóśźż",
@@ -971,7 +1063,7 @@ function renderProductionJpgBlob() {
 }
 
 function buildProjectJson() {
-  const nick = (nickInput?.value || "").trim(); // ORYGINAŁ (z polskimi znakami)
+  const nick = (nickInput?.value || "").trim();
   const dpi = getEffectiveDpi();
   return JSON.stringify(
     {
@@ -1162,7 +1254,7 @@ async function sendToProduction(skipNickCheck = false) {
       "Projekt został przekazany do produkcji. Zmiana nie będzie możliwa."
     );
   } catch (err) {
-    console.error(err);
+    derr(err);
     toast("Błąd wysyłania. Spróbuj ponownie.");
     setUiLocked(false);
   }
@@ -1174,6 +1266,9 @@ if (btnSendToProduction) {
 
 /* ===================== [START] ===================== */
 (async function init() {
+  // jeśli chcesz szybko sprawdzić endpointy: dopisz ?debug=1 i odkomentuj:
+  // if (DEBUG) dlog(await checkEndpoints());
+
   await setShape("square", { skipHistory: true });
   clearTemplateSelection({ skipHistory: true });
 
@@ -1181,7 +1276,7 @@ if (btnSendToProduction) {
     const templates = await loadTemplates();
     renderTemplateGrid(templates);
   } catch (err) {
-    console.error(err);
+    derr(err);
     if (templateGrid) templateGrid.innerHTML = `<div class="smallText">Nie udało się wczytać szablonów.</div>`;
     toast("Nie udało się wczytać szablonów.");
   }
@@ -1189,6 +1284,8 @@ if (btnSendToProduction) {
   redraw();
   updateStatusBar();
   pushHistory();
+
+  dlog("Loaded", { CACHE_VERSION, DEBUG });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-09 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-11 === */
