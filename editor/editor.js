@@ -868,14 +868,17 @@ function sanitizeFileBase(raw) {
 }
 
 // PODGLĄD: JPG q=0.70
-btnDownloadPreview.addEventListener("click", () => {
-  const a = document.createElement("a");
-  const nick = sanitizeFileBase(nickInput.value);
-  a.download = `${nick}_preview.jpg`;
-  a.href = canvas.toDataURL("image/jpeg", 0.70);
-  a.click();
-  toast("Zapisano PODGLĄD JPG ✅");
-});
+if (btnDownloadPreview) {
+  btnDownloadPreview.addEventListener("click", () => {
+    const a = document.createElement("a");
+    const nick = sanitizeFileBase(nickInput.value);
+    a.download = `${nick}_preview.jpg`;
+    a.href = canvas.toDataURL("image/jpeg", 0.70);
+    a.click();
+    toast("Zapisano PODGLĄD JPG ✅");
+  });
+}
+
 
 /* ===================== [SEKCJA 8B] WYŚLIJ DO REALIZACJI ===================== */
 let productionLocked = false;
