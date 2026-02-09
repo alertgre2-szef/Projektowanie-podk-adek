@@ -1,167 +1,476 @@
-<!doctype html>
-<html lang="pl">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Edytor podkładki</title>
+/* FILE_VERSION: 2026-02-09-13 */
+/* === RESET === */
 
-  <link rel="stylesheet" href="./style.css?v=2026-02-09-13" />
-</head>
-<body>
-  <div class="app">
-    <div class="header">
-      <div class="title">
-        <div class="h1">
-          Edytor podkładki
-          <span id="appVersion" style="font-size:0.6em;color:#666;"></span>
-        </div>
-        <div class="sub">Projekt 10×10 cm (spad).</div>
-      </div>
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
 
-      <div class="shapeToggle" role="group" aria-label="Kształt podkładki">
-        <button id="btnSquare" class="btn small active" type="button">Kwadrat (R=5)</button>
-        <button id="btnCircle" class="btn small" type="button">Okrąg</button>
-      </div>
-    </div>
+body {
+  background: #000;
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+}
 
-    <div class="main">
-      <div class="previewWrap">
-        <div class="previewToolbar">
-          <button id="btnUndo" class="btn small secondary" type="button">Cofnij</button>
-          <button id="btnRedo" class="btn small secondary" type="button">Ponów</button>
-          <div class="toolbarSpacer"></div>
-          <button id="btnZoomOut" class="btn small secondary" type="button">−</button>
-          <button id="btnZoomIn" class="btn small secondary" type="button">+</button>
-          <button id="btnFit" class="btn small secondary" type="button">Dopasuj</button>
-          <button id="btnCenter" class="btn small secondary" type="button">Wyśrodkuj</button>
-        </div>
+.app {
+  width: 100%;
+  max-width: 1120px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.10);
+  padding: 16px;
 
-        <div class="preview" id="preview">
-          <canvas id="canvas" width="1181" height="1181"></canvas>
-          <img id="maskOverlay" class="maskOverlay" alt="" />
-        </div>
+  /* ZMIENIONE (sygnał załadowania nowych styli) */
+  border-top: 6px solid #f97316;
+}
 
-        <div class="dangerNote">
-          Uwaga: elementy znajdujące się w żółtej strefie mogą zostać przycięte podczas produkcji.
-        </div>
+.header {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
 
-        <div class="hint">
-          Tip: Na telefonie możesz powiększać/zmniejszać stronę gestem.
-        </div>
+.h1 { font-size: 18px; font-weight: 700; }
+.sub { font-size: 12px; color: #6b7280; margin-top: 4px; }
 
-        <div class="statusBar" id="statusBar"></div>
-      </div>
+.shapeToggle { display: flex; gap: 8px; }
 
-      <div class="panel">
-        <div class="card">
-          <div class="cardTitle">1) Wgraj zdjęcie</div>
-          <input id="photoInput" type="file" accept="image/*" />
-          <div class="smallText">Na telefonie możesz wybrać zdjęcie z galerii.</div>
-        </div>
+.main {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
 
-        <div class="card">
-          <div class="cardTitle">2) Szablon (opcjonalnie)</div>
-          <div id="templateGrid" class="templateGrid"></div>
-          <div class="smallText">Kliknij miniaturę, aby nałożyć szablon.</div>
-        </div>
+.previewWrap { flex: 1; min-width: 320px; }
 
-        <div class="card">
-          <div class="cardTitle">3) Podpis / nick</div>
-          <input id="nickInput" type="text" placeholder="np. Kowalski / nick / nr zamówienia" />
-        </div>
+/* === TOOLBAR + STATUS === */
+.previewToolbar {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
 
-        <div class="card">
-          <div class="cardTitle">Eksport</div>
+.toolbarSpacer { flex: 1; }
 
-          <button id="btnDownloadPreview" class="btn" type="button">Podgląd JPG</button>
+.statusBar {
+  width: 100%;
+  max-width: 560px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #374151;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
 
-          <div style="height:10px"></div>
+/* === PODGLĄD === */
+.preview {
+  width: 100%;
+  max-width: 560px;
+  aspect-ratio: 1;
+  position: relative;
+  background: #000;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+}
 
-          <button id="btnSendToProduction" class="btn" type="button">
-            Wyślij do realizacji
-          </button>
-          <div class="smallText">
-            Po wysłaniu projekt trafia do produkcji i <b>nie będzie można wprowadzić zmian</b>.
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+#canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: #fff;
+  position: relative;
+  z-index: 1;
+}
 
-  <div class="toastContainer" id="toastContainer"></div>
+/* MASKA PNG */
+.maskOverlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  z-index: 10;
+  -webkit-user-drag: none;
+  user-select: none;
+}
 
-  <div id="nickModal" class="modalOverlay" aria-hidden="true" style="display:none;">
-    <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="nickModalTitle">
-      <div class="modalHeader">
-        <div id="nickModalTitle" class="modalTitle">Podpis / nr zamówienia</div>
-        <button id="nickModalClose" class="modalClose" type="button" aria-label="Zamknij">×</button>
-      </div>
+/* === PASEK OSTRZEGAWCZY === */
+.dangerNote {
+  max-width: 560px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.35;
+  border-radius: 10px;
+  background: #fff7c2;
+  border: 1px solid #e6d27a;
+  color: #3b3b3b;
+}
 
-      <div class="modalBody">
-        <div class="modalText">
-          Aby wysłać projekt do realizacji, wpisz proszę podpis / nick / nr zamówienia.
-        </div>
+/* Informacje */
+.hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #6b7280;
+}
 
-        <input
-          id="nickModalInput"
-          type="text"
-          placeholder="np. Kowalski / nick / nr zamówienia"
-          autocomplete="off"
-        />
+/* Panel */
+.panel {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-        <div id="nickModalHint" class="modalHint" style="display:none;">
-          Uzupełnij pole — to wymagane do wysłania projektu.
-        </div>
-      </div>
+.card {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+}
 
-      <div class="modalFooter">
-        <button id="nickModalCancel" class="btn secondary" type="button">Wróć</button>
-        <button id="nickModalSave" class="btn" type="button">Wyślij</button>
-      </div>
-    </div>
-  </div>
+.cardTitle { font-weight: 700; font-size: 13px; margin-bottom: 8px; }
 
-  <!-- BUSY OVERLAY -->
-  <div id="busyOverlay" class="busyOverlay" style="display:none;">
-    <div class="busyCard" role="dialog" aria-modal="true" aria-label="Trwa operacja">
-      <div class="busySpinner" aria-hidden="true"></div>
-      <div id="busyOverlayMsg" class="busyMsg">Trwa wysyłanie…</div>
-      <div class="busySub">Nie zamykaj strony.</div>
-    </div>
-  </div>
+.smallText {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.35;
+}
 
-  <!-- ERROR OVERLAY (retry) -->
-  <div id="errorOverlay" class="errorOverlay" style="display:none;">
-    <div class="errorCard" role="dialog" aria-modal="true" aria-labelledby="errorOverlayTitle">
-      <div id="errorOverlayTitle" class="errorTitle">Błąd</div>
-      <div id="errorOverlayMsg" class="errorMsg">Nie udało się wysłać.</div>
-      <div class="errorActions">
-        <button id="errorOverlayRetry" class="btn" type="button">Spróbuj ponownie</button>
-        <button id="errorOverlayClose" class="btn secondary" type="button">Zamknij</button>
-      </div>
-    </div>
-  </div>
+input[type="file"], input[type="text"] {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #fff;
+}
 
-  <div id="finalOverlay" class="finalOverlay" style="display:none;">
-    <div class="finalCard" role="dialog" aria-modal="true" aria-labelledby="finalOverlayTitle">
-      <div id="finalOverlayTitle" class="finalTitle">Wysłano ✅</div>
-      <div id="finalOverlayMsg" class="finalMsg">Projekt został przekazany do produkcji.</div>
-    </div>
-  </div>
+/* Przyciski */
+.btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #111827;
+  background: #111827;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
 
-  <script src="./editor.js?v=2026-02-09-13" defer></script>
+.btn.secondary {
+  border-color: #d1d5db;
+  background: #fff;
+  color: #111827;
+}
 
-  <script>
-    window.addEventListener("DOMContentLoaded", () => {
-      const el = document.getElementById("appVersion");
-      if (!el) return;
-      const v = window.CACHE_VERSION;
-      if (typeof v === "string" && v.trim()) {
-        el.textContent = " • v" + v;
-      }
-    });
-  </script>
-</body>
-</html>
+.btn.small {
+  width: auto;
+  padding: 8px 10px;
+  font-size: 12px;
+  margin-top: 0;
+}
 
-<!-- === KONIEC PLIKU — editor/index.html | FILE_VERSION: 2026-02-09-13 === -->
+.btn.active {
+  background: #111827;
+  color: #fff;
+}
+
+.btn.small:not(.active) {
+  background: #fff;
+  color: #111827;
+  border-color: #d1d5db;
+}
+
+/* disabled */
+.btn:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+/* Szablony */
+.templateGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.templateItem {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  cursor: pointer;
+  transition: transform 0.08s ease;
+}
+
+.templateItem:hover { transform: scale(1.01); }
+
+.templateItem img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.templateItem--none {
+  display: grid;
+  place-items: center;
+  min-height: 72px;
+  font-weight: 700;
+  color: #111827;
+  background: #fff;
+}
+
+/* ========================= */
+/* TOAST — NAD WSZYSTKIM + JAŚNIEJSZY */
+/* ========================= */
+.toastContainer {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 8px;
+  z-index: 25000;
+  pointer-events: none;
+  width: min(560px, calc(100% - 24px));
+}
+
+.toast {
+  pointer-events: none;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.96);
+  color: #111827;
+  border: 1px solid rgba(17,24,39,0.12);
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  position: relative;
+  padding-right: 34px;
+}
+
+.toastClose{
+  position:absolute; right:8px; top:6px;
+  width:22px; height:22px;
+  border:0; border-radius:999px;
+  background: rgba(17,24,39,0.10);
+  color:#111827;
+  font-size:16px; line-height:22px;
+  cursor:pointer;
+  pointer-events:auto;
+}
+.toastClose:hover{ background: rgba(17,24,39,0.16); }
+
+/* ========================= */
+/* MODAL: nick */
+/* ========================= */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 20000;
+}
+
+.modalCard {
+  width: min(460px, calc(100vw - 32px));
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  border: 1px solid #e5e7eb;
+  padding: 14px;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.modalTitle {
+  font-weight: 800;
+  font-size: 15px;
+  color: #111827;
+}
+
+.modalClose { display: none !important; }
+
+.modalBody { display: grid; gap: 10px; }
+
+.modalText {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.35;
+}
+
+.modalHint { font-size: 12px; color: #b91c1c; }
+
+.modalFooter {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+#nickModalSave { order: 1; margin-top: 0; }
+
+#nickModalCancel {
+  order: 2;
+  margin-top: 14px;
+  opacity: 0.75;
+  border-color: #e5e7eb;
+  color: #374151;
+}
+#nickModalCancel:hover { opacity: 0.9; }
+
+/* ========================= */
+/* BUSY OVERLAY */
+/* ========================= */
+.busyOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.60);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 22000;
+}
+
+.busyCard {
+  width: min(520px, calc(100vw - 32px));
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  border: 1px solid #e5e7eb;
+  padding: 16px;
+  text-align: center;
+  display: grid;
+  gap: 10px;
+}
+
+.busySpinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 4px solid rgba(17,24,39,0.12);
+  border-top-color: rgba(17,24,39,0.75);
+  margin: 0 auto;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.busyMsg {
+  font-weight: 900;
+  font-size: 16px;
+  color: #111827;
+}
+
+.busySub { font-size: 13px; color: #374151; }
+
+/* ========================= */
+/* ERROR OVERLAY (retry) */
+/* ========================= */
+.errorOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.60);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 23000;
+}
+
+.errorCard {
+  width: min(520px, calc(100vw - 32px));
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  border: 1px solid #e5e7eb;
+  padding: 16px;
+  text-align: center;
+}
+
+.errorTitle {
+  font-weight: 900;
+  font-size: 18px;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.errorMsg {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
+.errorActions { margin-top: 14px; display: grid; gap: 10px; }
+
+/* ========================= */
+/* FINAL OVERLAY */
+/* ========================= */
+.finalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.60);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 21000;
+}
+
+.finalCard {
+  width: min(520px, calc(100vw - 32px));
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  border: 1px solid #e5e7eb;
+  padding: 16px;
+  text-align: center;
+}
+
+.finalTitle {
+  font-weight: 900;
+  font-size: 18px;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.finalMsg { font-size: 13px; color: #374151; line-height: 1.35; }
+
+/* Mobile */
+@media (max-width: 768px) {
+  .preview,
+  .previewToolbar,
+  .statusBar,
+  .dangerNote { max-width: 100%; }
+  .templateGrid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-09-13 === */
