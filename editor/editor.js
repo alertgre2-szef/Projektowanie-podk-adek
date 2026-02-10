@@ -1657,4 +1657,4 @@ if (errorOverlay) {
   dlog("Loaded", { CACHE_VERSION, DEBUG });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-21 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-09-21 === .*/
