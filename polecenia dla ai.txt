@@ -1,35 +1,66 @@
-PLAN NA JUTRO — EDYTOR PODKŁADEK
+Plan startowy na jutro (10–15 min)
 
-Przetestować pełny proces wysyłki projektu:
+Odpal edytor w trybie produkcyjnym
 
-brak nicka → modal działa poprawnie
+Wejdź na:
 
-wpis nicka → Wyślij → plik trafia na serwer
+/puzzla/projekt-podkladek/editor/?token=TEST123
 
-sprawdzić zachowanie Enter / Wróć / zamknięcie modala
+(Jeśli masz realny token z backendu — użyj jego zamiast TEST123)
 
-Krytyczny test nicka z odstępami:
+Szybki check wersji
 
-wpisać np. „Jan Kowalski”
+Sprawdź w UI (lub w konsoli), że widzisz aktualne:
 
-sprawdzić czy upload dochodzi do /api/upload.php
+CACHE_VERSION (to co jest w editor.js)
 
-zweryfikować czy sanitize/order_id nie blokuje zapisu
+Jeśli nie, zrób twarde odświeżenie: Ctrl+F5.
 
-sprawdzić Network + console w przeglądarce
+Test „pełnego flow” (ważne!)
 
-Zweryfikować generowanie plików:
+Wgraj zdjęcie
 
-czy JPG powstaje poprawnie
+Wybierz szablon
 
-czy JSON wysyła się razem
+Zrób mały ruch/zoom (żeby było „dirty”)
 
-czy backend zapisuje dane
+Kliknij Wyślij do realizacji
 
-Ogólny test stabilności:
+Oczekiwany wynik:
 
-kilka prób wysyłki pod rząd
+brak 404
 
-różne nicki (spacje, polskie znaki, cyfry)
+upload OK
 
-Cel: upewnić się, że proces uploadu działa w 100% niezależnie od wpisanego nicka.
+overlay „Wysłano do realizacji ✅”
+
+Jeśli cokolwiek nie przejdzie
+Zrób od razu 3 rzeczy (bez zgadywania):
+
+screen z Console (ostatnie błędy)
+
+screen z Network → kliknij request, który padł:
+
+zakładka Headers (URL + status)
+
+zakładka Response (treść odpowiedzi)
+
+dopisz: z jakiego dokładnie adresu startowałeś (cały URL)
+
+Co jutro najpewniej zrobimy dalej (kierunek prac)
+
+Dopinamy „produkcyjne” szczegóły:
+
+stabilne ścieżki i REPO_BASE dla różnych katalogów
+
+walidacje po stronie upload (komunikaty dla usera)
+
+logika order_id / nick (żeby zawsze miało sens)
+
+ewentualnie: wersjonowanie i spójny kontrakt API
+
+Jak jutro wejdziesz i będziesz chciał kontynuować, po prostu napisz:
+
+„Startuję, działa/nie działa” + ewentualne logi/screeny.
+
+Dobranoc i regeneracja obowiązkowa 😄
