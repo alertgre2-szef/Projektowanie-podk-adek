@@ -10,7 +10,7 @@
  * SECURITY:
  *  - no hard secrets in JS
  *  - upload auth via X-Project-Token (bearer) + server-side validation
- * VERSION: 2026-02-10-04
+ * VERSION: 2026-02-10-05
  */
 
 /* ===================== [SEKCJA 1] UTIL + DEBUG ===================== */
@@ -21,7 +21,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-10-04";
+const CACHE_VERSION = "2026-02-10-05";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -34,6 +34,48 @@ function withV(url) {
     const glue = String(url).includes("?") ? "&" : "?";
     return `${url}${glue}v=${encodeURIComponent(CACHE_VERSION)}`;
   }
+}
+
+/**
+ * Repo-aware URL handling:
+ * - gdy backend zwraca "/api/..." albo "/assets/..." a edytor działa w subfolderze
+ *   (np. /puzzla/projekt-podkladek/editor/), to root-relative ścieżki powodują 404.
+ * - Tu generujemy kandydatów: najpierw z REPO_BASE, potem oryginał.
+ */
+function toAbsUrl(u) {
+  if (!u) return "";
+  try { return new URL(String(u), location.origin).toString(); }
+  catch { return String(u); }
+}
+function uniq(arr) {
+  const out = [];
+  const seen = new Set();
+  for (const x of arr) {
+    const k = String(x || "");
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(k);
+  }
+  return out;
+}
+function repoAwareCandidates(u) {
+  const s = String(u || "").trim();
+  if (!s) return [];
+  // absolutne URL-e / względne typu "api/..." zostawiamy normalnie
+  // root-relative "/..." traktujemy repo-aware
+  if (s.startsWith("/") && REPO_BASE && !s.startsWith(REPO_BASE + "/")) {
+    const a = toAbsUrl(REPO_BASE + s);
+    const b = toAbsUrl(s);
+    return uniq([a, b]);
+  }
+  return uniq([toAbsUrl(s)]);
+}
+function repoAwareSingle(u) {
+  // preferuj wersję z REPO_BASE, ale zostaw fallback w miejscach,
+  // gdzie i tak robimy pętlę po kandydatach (listy)
+  const c = repoAwareCandidates(u);
+  return c[0] || "";
 }
 
 /** Debug toggle: ?debug=1 lub localStorage.EDITOR_DEBUG="1" */
@@ -344,30 +386,36 @@ function normalizeProductConfig(raw, { token, mode }) {
 
   // Assets: masks
   const masks = {
-    square: absUrlMaybe(raw?.assets?.masks?.square) || `${REPO_BASE}/editor/assets/masks/mask_square.png`,
-    circle: absUrlMaybe(raw?.assets?.masks?.circle) || `${REPO_BASE}/editor/assets/masks/mask_circle.png`,
+    square: repoAwareSingle(raw?.assets?.masks?.square) || `${REPO_BASE}/editor/assets/masks/mask_square.png`,
+    circle: repoAwareSingle(raw?.assets?.masks?.circle) || `${REPO_BASE}/editor/assets/masks/mask_circle.png`,
   };
 
-  // Assets: templates list candidates
+  // Assets: templates list candidates (repo-aware + fallback)
   const list_urls_raw = raw?.assets?.templates?.list_urls;
-  const list_urls = Array.isArray(list_urls_raw) && list_urls_raw.length
-    ? list_urls_raw.map(absUrlMaybe)
-    : [
-        absUrlMaybe(raw?.templates_endpoint) || `${REPO_BASE}/api/templates.php`,
-        `${REPO_BASE}/assets/templates/list.json`,
-        `${REPO_BASE}/assets/templates/index.json`,
-      ];
+  let list_urls = [];
+
+  if (Array.isArray(list_urls_raw) && list_urls_raw.length) {
+    list_urls = uniq(list_urls_raw.flatMap((x) => repoAwareCandidates(x)));
+  } else {
+    // legacy / defaults
+    list_urls = uniq([
+      ...repoAwareCandidates(raw?.templates_endpoint),
+      ...repoAwareCandidates(`${REPO_BASE}/api/templates.php`),
+      ...repoAwareCandidates(`${REPO_BASE}/assets/templates/list.json`),
+      ...repoAwareCandidates(`${REPO_BASE}/assets/templates/index.json`),
+    ]);
+  }
 
   const folder_base =
-    absUrlMaybe(raw?.assets?.templates?.folder_base) ||
+    repoAwareSingle(raw?.assets?.templates?.folder_base) ||
     `${REPO_BASE}/assets/templates/coasters/`;
 
-  // API endpoints: allow both styles
+  // API endpoints: allow both styles (repo-aware)
   const api = {
-    project_url: absUrlMaybe(raw?.api?.project_url) || `${REPO_BASE}/api/project.php`,
+    project_url: repoAwareSingle(raw?.api?.project_url) || `${REPO_BASE}/api/project.php`,
     upload_url:
-      absUrlMaybe(raw?.api?.upload_url) ||
-      absUrlMaybe(raw?.upload_endpoint) ||
+      repoAwareSingle(raw?.api?.upload_url) ||
+      repoAwareSingle(raw?.upload_endpoint) ||
       `${REPO_BASE}/api/upload.php`,
   };
 
@@ -1920,4 +1968,4 @@ async function applyProductConfig(cfg) {
   dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-10-04 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-10-05 === */
