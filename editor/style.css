@@ -1,4 +1,5 @@
-/* FILE_VERSION: 2026-02-10-01 */
+/* editor/style.css */
+/* FILE_VERSION: 2026-02-10-03 */
 /* === THEME VARS === */
 :root{
   --bg: #0b0f14;
@@ -9,7 +10,7 @@
   --border: #e5e7eb;
   --preview-bg: #000000;
 
-  /* Akcent (możesz zmienić: blue/green) */
+  /* Akcent */
   --accent: #2563eb;
   --accent-2: #1d4ed8;
 
@@ -35,12 +36,10 @@
   --border: rgba(255,255,255,0.12);
   --preview-bg: #000000;
 
-  /* W dark: CTA ma być czytelne => primary = accent */
   --btn-bg: var(--accent);
   --btn-border: var(--accent-2);
   --btn-text: #ffffff;
 
-  /* Secondary w dark: widoczne tło */
   --btn-secondary-bg: rgba(255,255,255,0.08);
   --btn-secondary-border: rgba(255,255,255,0.18);
   --btn-secondary-text: var(--text);
@@ -73,7 +72,7 @@ body {
   padding: 16px;
 
   /* ZMIENIONE (sygnał załadowania nowych styli) */
-  border-top: 6px solid #a855f7;
+  border-top: 6px solid #22c55e;
 }
 
 .header {
@@ -210,12 +209,20 @@ body {
   line-height: 1.35;
 }
 
-input[type="file"], input[type="text"] {
+input[type="file"], input[type="text"], select.select {
   width: 100%;
   padding: 10px;
   border: 1px solid #d1d5db;
   border-radius: 10px;
   background: #fff;
+}
+
+:root[data-theme="dark"] input[type="file"],
+:root[data-theme="dark"] input[type="text"],
+:root[data-theme="dark"] select.select{
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.16);
+  color: var(--text);
 }
 
 /* Przyciski */
@@ -259,7 +266,8 @@ input[type="file"], input[type="text"] {
 
 /* disabled */
 .btn:disabled,
-input:disabled {
+input:disabled,
+select:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -308,17 +316,12 @@ input:disabled {
   display: grid;
   gap: 8px;
   z-index: 25000;
-
-  /* POPRAWKA: musi być klikalne, żeby działał przycisk × */
   pointer-events: auto;
-
   width: min(560px, calc(100% - 24px));
 }
 
 .toast {
-  /* POPRAWKA: toast musi przyjmować klik (×) */
   pointer-events: auto;
-
   padding: 10px 12px;
   border-radius: 12px;
   background: var(--toast-bg);
@@ -406,4 +409,4 @@ input:disabled {
   .templateGrid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-10-01 === */
+/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-10-03 === */
