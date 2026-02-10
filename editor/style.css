@@ -1,4 +1,4 @@
-/* FILE_VERSION: 2026-02-09-18 */
+/* FILE_VERSION: 2026-02-10-01 */
 /* === THEME VARS === */
 :root{
   --bg: #0b0f14;
@@ -73,7 +73,7 @@ body {
   padding: 16px;
 
   /* ZMIENIONE (sygnał załadowania nowych styli) */
-  border-top: 6px solid #22c55e;
+  border-top: 6px solid #a855f7;
 }
 
 .header {
@@ -308,12 +308,17 @@ input:disabled {
   display: grid;
   gap: 8px;
   z-index: 25000;
-  pointer-events: none;
+
+  /* POPRAWKA: musi być klikalne, żeby działał przycisk × */
+  pointer-events: auto;
+
   width: min(560px, calc(100% - 24px));
 }
 
 .toast {
-  pointer-events: none;
+  /* POPRAWKA: toast musi przyjmować klik (×) */
+  pointer-events: auto;
+
   padding: 10px 12px;
   border-radius: 12px;
   background: var(--toast-bg);
@@ -401,4 +406,4 @@ input:disabled {
   .templateGrid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-09-18 === */
+/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-10-01 === */
