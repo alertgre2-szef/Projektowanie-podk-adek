@@ -1,3 +1,4 @@
+<!-- editor/index.html -->
 <!doctype html>
 <html lang="pl">
 <head>
@@ -5,7 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Edytor</title>
 
-  <link rel="stylesheet" href="./style.css?v=2026-02-10-02" />
+  <link rel="stylesheet" href="./style.css?v=2026-02-10-03" />
 </head>
 <body>
   <div class="app">
@@ -15,7 +16,7 @@
           <span id="appTitleText">Edytor podkładki</span>
           <span id="appVersion" style="font-size:0.6em;color:#666;"></span>
         </div>
-        <div class="sub" id="appSubtitleText">Projekt 10×10 cm (spad).</div>
+        <div class="sub" id="appSubtitleText">Ładowanie konfiguracji…</div>
       </div>
 
       <div class="headerRight">
@@ -69,6 +70,22 @@
       </div>
 
       <div class="panel">
+        <!-- FALLBACK: wybór produktu, jeśli token/konfig nieznana -->
+        <div class="card" id="productSelectCard" style="display:none;">
+          <div class="cardTitle">Wybór produktu (tryb demo)</div>
+          <div class="smallText" style="margin-top:0;">
+            Nie rozpoznano tokena lub konfiguracji. Wybierz produkt, aby uruchomić edytor w trybie lokalnym.
+            <br><b>Wysyłka do realizacji będzie zablokowana</b>, dopóki backend nie zwróci konfiguracji dla tokena.
+          </div>
+
+          <label class="smallText" for="productSelect" style="margin-top:10px;display:block;">Produkt</label>
+          <select id="productSelect" class="select" aria-label="Wybór produktu">
+            <option value="">— wybierz —</option>
+          </select>
+
+          <button id="btnApplyProductSelect" class="btn" type="button" disabled>Uruchom edytor</button>
+        </div>
+
         <div class="card">
           <div class="cardTitle">1) Wgraj zdjęcie</div>
           <input id="photoInput" type="file" accept="image/*" />
@@ -96,7 +113,7 @@
           <button id="btnSendToProduction" class="btn" type="button">
             Wyślij do realizacji
           </button>
-          <div class="smallText">
+          <div class="smallText" id="productionHint">
             Po wysłaniu projekt trafia do produkcji i <b>nie będzie można wprowadzić zmian</b>.
           </div>
         </div>
@@ -165,8 +182,8 @@
     </div>
   </div>
 
-  <script src="./editor.js?v=2026-02-10-02" defer></script>
+  <script src="./editor.js?v=2026-02-10-03" defer></script>
 </body>
 </html>
 
-<!-- === KONIEC PLIKU — editor/index.html | FILE_VERSION: 2026-02-10-02 === -->
+<!-- === KONIEC PLIKU — editor/index.html | FILE_VERSION: 2026-02-10-03 === -->
