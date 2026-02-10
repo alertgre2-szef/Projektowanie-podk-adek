@@ -2,26 +2,24 @@
 declare(strict_types=1);
 
 /**
- * PROJECT: Web Editor – Product Designer
- * FILE: api/upload.php
- * ROLE: Production upload endpoint (image + json)
- * CONTRACT:
- *  - POST multipart:
- *     - image field: "png" or "jpg" (JPEG/PNG accepted)
- *     - json field: "json" (optional)
- *     - order_id: "order_id" (optional)
- *  - AUTH:
- *     - preferred: header X-Project-Token (validated against api/project.config.php keys)
- *     - legacy: header X-Upload-Token (optional)
- * SECURITY:
- *  - size limits
- *  - finfo MIME validation
- *  - safe filenames + random suffix
- * VERSION: 2026-02-10-02
+ * api/upload.php
+ * FILE_VERSION: 2026-02-10-04
+ *
+ * Kanałowo-neutralna autoryzacja:
+ *  - preferowane: X-Project-Token (token z URL edytora, weryfikowany po stronie serwera)
+ *  - opcjonalnie legacy: X-Upload-Token (stały sekret) lub POST token=
+ *
+ * Wejście:
+ *  - plik obrazu: pole "jpg" lub "png" (kompatybilność)
+ *  - json: pole POST "json" lub plik "json_file"
+ *  - order_id: POST "order_id" (opcjonalnie)
+ *
+ * Wyjście:
+ *  { ok:true, id, image_url, json_url }
  */
 
-// === LEGACY OPTIONAL TOKEN (can be removed later) ===
-const UPLOAD_TOKEN = '4f9c7d2a8e1b5f63c0a9e72d41f8b6c39e5a0d7f1b2c8e4a6d9f3c1b7e0a2f5';
+// === USTAWIENIA ===
+const LEGACY_UPLOAD_TOKEN = '4f9c7d2a8e1b5f63c0a9e72d41f8b6c39e5a0d7f1b2c8e4a6d9f3c1b7e0a2f5';
 
 const MAX_IMAGE_BYTES = 25_000_000; // 25 MB
 const MAX_JSON_BYTES  = 2_000_000;  // 2 MB
@@ -33,47 +31,65 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 
-function fail(int $code, string $msg, array $extra = []): void {
+function json_fail(int $code, string $msg, array $extra = []): void {
   http_response_code($code);
-  echo json_encode(array_merge(['ok' => false, 'error' => $msg], $extra), JSON_UNESCAPED_UNICODE);
+  echo json_encode(array_merge(['ok' => false, 'error' => $msg], $extra), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
   exit;
 }
 
-// === AUTH (preferred: X-Project-Token) ===
-$projectToken = trim((string)($_SERVER['HTTP_X_PROJECT_TOKEN'] ?? ''));
-
-$authorized = false;
-
-// 1) project-token against config keys
-if ($projectToken !== '') {
-  $map = require __DIR__ . '/project.config.php';
-  if (is_array($map) && isset($map[$projectToken])) {
-    $authorized = true;
+/**
+ * Autoryzacja:
+ * - X-Project-Token: token musi istnieć w api/project.config.php
+ * - Legacy: X-Upload-Token lub POST token=
+ */
+function authorize(): array {
+  $projectToken = (string)($_SERVER['HTTP_X_PROJECT_TOKEN'] ?? '');
+  if ($projectToken === '') {
+    // dopuszczamy też POST project_token (awaryjnie)
+    $projectToken = (string)($_POST['project_token'] ?? '');
   }
-}
 
-// 2) legacy upload token (optional compatibility)
-if (!$authorized) {
+  if ($projectToken !== '') {
+    $cfgPath = __DIR__ . '/project.config.php';
+    if (!is_file($cfgPath) || !is_readable($cfgPath)) {
+      json_fail(500, 'Server misconfig: project.config.php missing');
+    }
+
+    $map = require $cfgPath;
+    if (!is_array($map)) {
+      json_fail(500, 'Server misconfig: project.config.php must return array');
+    }
+
+    if (!array_key_exists($projectToken, $map)) {
+      json_fail(401, 'Unauthorized (unknown project token)');
+    }
+
+    // token OK
+    return ['mode' => 'project', 'project_token' => $projectToken];
+  }
+
+  // legacy upload token (jeśli kiedyś potrzebne)
   $legacy = (string)($_SERVER['HTTP_X_UPLOAD_TOKEN'] ?? ($_POST['token'] ?? ''));
-  if ($legacy && hash_equals(UPLOAD_TOKEN, $legacy)) {
-    $authorized = true;
+  if ($legacy !== '' && hash_equals(LEGACY_UPLOAD_TOKEN, $legacy)) {
+    return ['mode' => 'legacy', 'project_token' => ''];
   }
+
+  json_fail(401, 'Unauthorized');
 }
 
-if (!$authorized) {
-  fail(401, 'Unauthorized');
-}
+/* ==== AUTH ==== */
+$auth = authorize();
 
-// === PATHS ===
+/* ==== ŚCIEŻKI ==== */
 $baseDir = realpath(__DIR__ . '/..');
-if ($baseDir === false) fail(500, 'Server misconfig');
+if ($baseDir === false) json_fail(500, 'Server misconfig');
 
 $uploadDir = $baseDir . DIRECTORY_SEPARATOR . 'uploads';
 if (!is_dir($uploadDir)) {
-  if (!mkdir($uploadDir, 0755, true)) fail(500, 'Cannot create uploads dir');
+  if (!mkdir($uploadDir, 0755, true)) json_fail(500, 'Cannot create uploads dir');
 }
 
-// === HELPERS ===
+/* ==== HELPERS ==== */
 function mb_substr_safe(string $s, int $start, int $len): string {
   if (function_exists('mb_substr')) return (string)mb_substr($s, $start, $len, 'UTF-8');
   return substr($s, $start, $len);
@@ -103,9 +119,7 @@ function random_suffix(int $len): string {
   $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ234567';
   $out = '';
   $max = strlen($alphabet) - 1;
-  for ($i = 0; $i < $len; $i++) {
-    $out .= $alphabet[random_int(0, $max)];
-  }
+  for ($i = 0; $i < $len; $i++) $out .= $alphabet[random_int(0, $max)];
   return $out;
 }
 
@@ -114,48 +128,50 @@ function pick_unique_id(string $prefix, string $uploadDir): string {
     $suffix = random_suffix(SHORT_SUFFIX_LEN);
     $id = $prefix !== '' ? ($prefix . '_' . $suffix) : $suffix;
 
-    $png = $uploadDir . DIRECTORY_SEPARATOR . $id . '.png';
-    $jpg = $uploadDir . DIRECTORY_SEPARATOR . $id . '.jpg';
+    $png  = $uploadDir . DIRECTORY_SEPARATOR . $id . '.png';
+    $jpg  = $uploadDir . DIRECTORY_SEPARATOR . $id . '.jpg';
     $json = $uploadDir . DIRECTORY_SEPARATOR . $id . '.json';
 
-    if (!file_exists($png) && !file_exists($jpg) && !file_exists($json)) {
-      return $id;
-    }
+    if (!file_exists($png) && !file_exists($jpg) && !file_exists($json)) return $id;
   }
 
   $suffix = random_suffix(SHORT_SUFFIX_LEN + 3);
   return $prefix !== '' ? ($prefix . '_' . $suffix) : $suffix;
 }
 
-// === IMAGE FILE KEY: accept "png" OR "jpg" ===
+/* ==== ID PLIKU ==== */
+$orderId = clean_id((string)($_POST['order_id'] ?? ''));
+$id = pick_unique_id($orderId, $uploadDir);
+
+/* ==== PLIK OBRAZU ==== */
+/**
+ * Kompatybilność:
+ * - nowy frontend: field "jpg"
+ * - stary frontend: field "png"
+ */
 $fileKey = null;
-if (isset($_FILES['png']) && is_uploaded_file($_FILES['png']['tmp_name'])) $fileKey = 'png';
-if ($fileKey === null && isset($_FILES['jpg']) && is_uploaded_file($_FILES['jpg']['tmp_name'])) $fileKey = 'jpg';
-if ($fileKey === null) fail(400, 'Missing image file');
+if (isset($_FILES['jpg']) && is_uploaded_file($_FILES['jpg']['tmp_name'])) $fileKey = 'jpg';
+if ($fileKey === null && isset($_FILES['png']) && is_uploaded_file($_FILES['png']['tmp_name'])) $fileKey = 'png';
 
-if ($_FILES[$fileKey]['size'] > MAX_IMAGE_BYTES) fail(413, 'Image too large');
+if ($fileKey === null) json_fail(400, 'Missing image file (expected field jpg or png)');
 
-// === MIME CHECK ===
+if ((int)$_FILES[$fileKey]['size'] > MAX_IMAGE_BYTES) json_fail(413, 'Image too large');
+
+/* ==== MIME CHECK ==== */
 $finfo = new finfo(FILEINFO_MIME_TYPE);
 $mime = $finfo->file($_FILES[$fileKey]['tmp_name']) ?: '';
 
 $ext = null;
 if ($mime === 'image/png') $ext = 'png';
-elseif ($mime === 'image/jpeg') $ext = 'jpg';
-else fail(415, 'Only PNG or JPG allowed', ['mime' => $mime]);
-
-// === ID ===
-$orderId = clean_id((string)($_POST['order_id'] ?? ''));
-$id = pick_unique_id($orderId, $uploadDir);
+elseif ($mime === 'image/jpeg' || $mime === 'image/jpg') $ext = 'jpg';
+else json_fail(415, 'Only PNG or JPG allowed', ['mime' => $mime]);
 
 $imageName = $id . '.' . $ext;
 $imagePath = $uploadDir . DIRECTORY_SEPARATOR . $imageName;
 
-if (!move_uploaded_file($_FILES[$fileKey]['tmp_name'], $imagePath)) {
-  fail(500, 'Cannot save image');
-}
+if (!move_uploaded_file($_FILES[$fileKey]['tmp_name'], $imagePath)) json_fail(500, 'Cannot save image');
 
-// === JSON (opcjonalny) ===
+/* ==== JSON (opcjonalny) ==== */
 $jsonSaved = false;
 $jsonName = $id . '.json';
 $jsonPath = $uploadDir . DIRECTORY_SEPARATOR . $jsonName;
@@ -166,16 +182,22 @@ if (is_string($jsonText) && $jsonText !== '') {
     file_put_contents($jsonPath, $jsonText);
     $jsonSaved = true;
   }
+} elseif (isset($_FILES['json_file']) && is_uploaded_file($_FILES['json_file']['tmp_name'])) {
+  if ((int)$_FILES['json_file']['size'] <= MAX_JSON_BYTES) {
+    move_uploaded_file($_FILES['json_file']['tmp_name'], $jsonPath);
+    $jsonSaved = true;
+  }
 }
 
-// === RESPONSE ===
+/* ==== ODPOWIEDŹ ==== */
 $baseUrl = 'https://puzzla.nazwa.pl/puzzla/projekt-podkladek/uploads/';
 
 echo json_encode([
   'ok' => true,
+  'auth_mode' => $auth['mode'],
   'id' => $id,
   'image_url' => $baseUrl . $imageName,
   'json_url' => $jsonSaved ? ($baseUrl . $jsonName) : null,
-], JSON_UNESCAPED_UNICODE);
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-10-02 === */
+/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-10-04 === */
