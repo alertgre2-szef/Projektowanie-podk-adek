@@ -1,19 +1,16 @@
 // editor/editor.js
 /**
- * ============================================================
- * Edytor podkładek — kanałowo-neutralny start (token → productConfig)
- * FILE_VERSION: 2026-02-10-03
- *
- * Kontrakt wejścia:
- *  - uruchomienie: ?token=...
- *  - GET /api/project?token=... → productConfig (stały format)
- *  - fallback: prosty wybór produktu (tryb demo) jeśli token/konfig nieznana
- *
- * Future-proofing:
- *  - brak twardych sekretów w JS (UPLOAD_TOKEN usunięty)
- *  - endpointy i parametry z productConfig (z sensownymi defaultami)
- *  - blokada “Wyślij do realizacji” w trybie demo (bez konfiguracji backendu)
- * ============================================================
+ * PROJECT: Web Editor – Product Designer
+ * FILE: editor/editor.js
+ * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
+ * CONTRACT:
+ *  - launch: ?token=...
+ *  - GET /api/project.php?token=... → { ok:true, mode, productConfig }
+ *  - fallback: demo preset chooser (if DOM exists) or demo preset auto
+ * SECURITY:
+ *  - no hard secrets in JS
+ *  - upload auth via X-Project-Token (bearer) + server-side validation
+ * VERSION: 2026-02-10-04
  */
 
 /* ===================== [SEKCJA 1] UTIL + DEBUG ===================== */
@@ -24,7 +21,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-10-03";
+const CACHE_VERSION = "2026-02-10-04";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -266,17 +263,16 @@ function toast(msg, ms = TOAST_DEFAULT_MS) {
 
 /* ===================== [SEKCJA 3] productConfig (token → backend → fallback) ===================== */
 /**
- * Stały “wewnętrzny” format po normalizacji (to jest ważne future-proofing):
+ * Stały “wewnętrzny” format po normalizacji (future-proofing):
  * {
  *   schema_version: 1,
  *   mode: "backend"|"demo",
  *   token: string,
  *   ui: { title, subtitle },
- *   product: { type, size_mm:{w,h}, corner_radius_mm, shape_default, shape_options:[...] },
+ *   product: { type, name?, size_mm:{w,h}, corner_radius_mm, shape_default, shape_options:[...] },
  *   render: { canvas_px, cut_ratio, print_dpi },
- *   assets: { masks: {square, circle}, templates: { list_urls:[...], folder_base } },
+ *   assets: { masks:{square,circle}, templates:{ list_urls:[...], folder_base } },
  *   api: { project_url, upload_url },
- *   auth: { upload_token?: string } // opcjonalnie z backendu (wtedy użyjemy)
  * }
  */
 
@@ -308,46 +304,56 @@ async function fetchJsonWithTimeout(url, { timeoutMs = 6500 } = {}) {
   }
 }
 
+/**
+ * normalizeProductConfig:
+ * - akceptuje zarówno “stary” payload (productConfig bez wrappera),
+ *   jak i nowy payload z /api/project.php (ok/mode/productConfig).
+ */
 function normalizeProductConfig(raw, { token, mode }) {
-  // bezpieczne defaulty
   const schema_version = 1;
 
+  // UI
   const ui = {
-    title: (raw?.ui?.title ?? raw?.title ?? "Edytor produktu").toString(),
+    title: (raw?.ui?.title ?? raw?.title ?? raw?.product?.name ?? "Edytor produktu").toString(),
     subtitle: (raw?.ui?.subtitle ?? raw?.subtitle ?? "").toString(),
   };
 
+  // Product
+  const productType = (raw?.product?.type ?? raw?.type ?? "coaster").toString();
+
   const product = {
-    type: (raw?.product?.type ?? raw?.type ?? "coaster").toString(),
+    type: productType,
+    name: (raw?.product?.name ?? raw?.name ?? "").toString(),
     size_mm: {
       w: Number(raw?.product?.size_mm?.w ?? raw?.size_mm?.w ?? 100) || 100,
       h: Number(raw?.product?.size_mm?.h ?? raw?.size_mm?.h ?? 100) || 100,
     },
     corner_radius_mm: Number(raw?.product?.corner_radius_mm ?? raw?.corner_radius_mm ?? 5) || 0,
-    shape_default: (raw?.product?.shape_default ?? raw?.shape_default ?? "square").toString(),
+    shape_default: (raw?.product?.shape_default ?? raw?.shape_default ?? raw?.product?.shape ?? "square").toString(),
     shape_options: Array.isArray(raw?.product?.shape_options)
       ? raw.product.shape_options.map(String)
       : ["square", "circle"],
   };
 
+  // Render
   const render = {
     canvas_px: Number(raw?.render?.canvas_px ?? raw?.canvas_px ?? 1181) || 1181,
     cut_ratio: Number(raw?.render?.cut_ratio ?? raw?.cut_ratio ?? 0.90) || 0.90,
-    print_dpi: Number(raw?.render?.print_dpi ?? raw?.print_dpi ?? 300) || 300,
+    print_dpi: Number(raw?.render?.print_dpi ?? raw?.print_dpi ?? raw?.product?.dpi ?? 300) || 300,
   };
 
-  // masks: allow override from backend; otherwise default repo paths
+  // Assets: masks
   const masks = {
     square: absUrlMaybe(raw?.assets?.masks?.square) || `${REPO_BASE}/editor/assets/masks/mask_square.png`,
     circle: absUrlMaybe(raw?.assets?.masks?.circle) || `${REPO_BASE}/editor/assets/masks/mask_circle.png`,
   };
 
-  // templates list candidates: backend may provide urls; fallback to existing
+  // Assets: templates list candidates
   const list_urls_raw = raw?.assets?.templates?.list_urls;
   const list_urls = Array.isArray(list_urls_raw) && list_urls_raw.length
     ? list_urls_raw.map(absUrlMaybe)
     : [
-        `${REPO_BASE}/api/templates.php`,
+        absUrlMaybe(raw?.templates_endpoint) || `${REPO_BASE}/api/templates.php`,
         `${REPO_BASE}/assets/templates/list.json`,
         `${REPO_BASE}/assets/templates/index.json`,
       ];
@@ -356,13 +362,13 @@ function normalizeProductConfig(raw, { token, mode }) {
     absUrlMaybe(raw?.assets?.templates?.folder_base) ||
     `${REPO_BASE}/assets/templates/coasters/`;
 
+  // API endpoints: allow both styles
   const api = {
-    project_url: absUrlMaybe(raw?.api?.project_url) || `${REPO_BASE}/api/project`,
-    upload_url: absUrlMaybe(raw?.api?.upload_url) || `${REPO_BASE}/api/upload.php`,
-  };
-
-  const auth = {
-    upload_token: raw?.auth?.upload_token ? String(raw.auth.upload_token) : "",
+    project_url: absUrlMaybe(raw?.api?.project_url) || `${REPO_BASE}/api/project.php`,
+    upload_url:
+      absUrlMaybe(raw?.api?.upload_url) ||
+      absUrlMaybe(raw?.upload_endpoint) ||
+      `${REPO_BASE}/api/upload.php`,
   };
 
   return {
@@ -374,7 +380,6 @@ function normalizeProductConfig(raw, { token, mode }) {
     render,
     assets: { masks, templates: { list_urls, folder_base } },
     api,
-    auth,
     raw: DEBUG ? raw : undefined,
   };
 }
@@ -382,19 +387,26 @@ function normalizeProductConfig(raw, { token, mode }) {
 async function loadConfigFromBackend(token) {
   if (!token) return null;
 
-  const projectUrl = `${REPO_BASE}/api/project?token=${encodeURIComponent(token)}`;
+  const projectUrl = `${REPO_BASE}/api/project.php?token=${encodeURIComponent(token)}`;
 
   try {
     const raw = await fetchJsonWithTimeout(projectUrl, { timeoutMs: 6500 });
 
-    // Akceptujemy dwa warianty:
-    //  1) backend zwraca bezpośrednio productConfig
-    //  2) backend zwraca { ok:true, productConfig:{...} }
-    const cfgRaw = raw?.productConfig ? raw.productConfig : raw;
+    // Nowy kontrakt: { ok:true, mode, productConfig }
+    if (raw && raw.ok === true && raw.productConfig && typeof raw.productConfig === "object") {
+      const cfg = normalizeProductConfig(raw.productConfig, { token, mode: "backend" });
+      dlog("project.php ok:", raw.mode, cfg);
+      return cfg;
+    }
 
-    if (!cfgRaw || typeof cfgRaw !== "object") throw new Error("Nieprawidłowa konfiguracja");
+    // Legacy: backend zwraca bezpośrednio config
+    if (raw && typeof raw === "object") {
+      const cfg = normalizeProductConfig(raw, { token, mode: "backend" });
+      dlog("project.php legacy:", cfg);
+      return cfg;
+    }
 
-    return normalizeProductConfig(cfgRaw, { token, mode: "backend" });
+    throw new Error("Nieprawidłowa konfiguracja (pusty payload)");
   } catch (e) {
     dlog("loadConfigFromBackend failed:", e);
     return null;
@@ -405,13 +417,13 @@ const DEMO_PRESETS = [
   {
     id: "coaster_square_100_r5",
     ui: { title: "Edytor podkładki", subtitle: "Projekt 10×10 cm (spad)." },
-    product: { type: "coaster", size_mm: { w: 100, h: 100 }, corner_radius_mm: 5, shape_default: "square", shape_options: ["square", "circle"] },
+    product: { type: "coaster", name: "Podkładka 10×10", size_mm: { w: 100, h: 100 }, corner_radius_mm: 5, shape_default: "square", shape_options: ["square", "circle"] },
     render: { canvas_px: 1181, cut_ratio: 0.90, print_dpi: 300 },
   },
   {
     id: "coaster_circle_100",
     ui: { title: "Edytor podkładki", subtitle: "Projekt 10 cm (okrąg, spad)." },
-    product: { type: "coaster", size_mm: { w: 100, h: 100 }, corner_radius_mm: 0, shape_default: "circle", shape_options: ["circle", "square"] },
+    product: { type: "coaster", name: "Podkładka 10 cm", size_mm: { w: 100, h: 100 }, corner_radius_mm: 0, shape_default: "circle", shape_options: ["circle", "square"] },
     render: { canvas_px: 1181, cut_ratio: 0.90, print_dpi: 300 },
   },
 ];
@@ -1227,7 +1239,6 @@ function templateFolderBase() {
 }
 function templateFolderUrl(id) {
   const base = templateFolderBase();
-  // base ma kończyć się /
   const b = base.endsWith("/") ? base : (base + "/");
   return `${b}${encodeURIComponent(id)}/`;
 }
@@ -1415,7 +1426,7 @@ function closeErrorOverlay() {
   document.body.style.overflow = "";
 }
 
-/* ===================== [SEKCJA 13] WYSYŁKA (kanałowo-neutralnie przez token) ===================== */
+/* ===================== [SEKCJA 13] WYSYŁKA (token jako auth) ===================== */
 const PROJECT_JSON_SCHEMA_VERSION = 1;
 
 function roundNum(x, digits = 6) {
@@ -1475,7 +1486,6 @@ function buildProjectJson() {
 
     quality: { effective_dpi: dpi == null ? null : Math.round(dpi), label: qualityLabelFromDpi(dpi) },
 
-    // debug/legacy
     cache_version: CACHE_VERSION,
     ts_iso: nowIso,
     nick: nick,
@@ -1546,8 +1556,8 @@ function renderProductionJpgBlob() {
 
 /**
  * uploadToServer:
- *  - kanałowo-neutralnie autoryzujemy przez token z URL (X-Project-Token)
- *  - opcjonalnie backend może zwrócić auth.upload_token (X-Upload-Token)
+ * - autoryzacja przez X-Project-Token (token z URL)
+ * - multipart: image pod kluczem "png" (kompatybilnie z upload.php), MIME: image/jpeg
  */
 async function uploadToServer(blob, jsonText, filename) {
   const fd = new FormData();
@@ -1559,12 +1569,12 @@ async function uploadToServer(blob, jsonText, filename) {
 
   if (orderId) fd.append("order_id", orderId);
 
-  fd.append("jpg", blob, filename);
+  // klucz "png" zostaje dla kompatybilności (upload.php akceptuje jpeg/png)
+  fd.append("png", blob, filename);
   fd.append("json", jsonText);
 
   const headers = {};
   if (productConfig?.token) headers["X-Project-Token"] = productConfig.token;
-  if (productConfig?.auth?.upload_token) headers["X-Upload-Token"] = productConfig.auth.upload_token;
 
   const uploadUrl = productConfig?.api?.upload_url || `${REPO_BASE}/api/upload.php`;
 
@@ -1833,7 +1843,7 @@ async function applyProductConfig(cfg) {
   CUT_RATIO = cfg.render.cut_ratio;
   PRINT_DPI = cfg.render.print_dpi;
 
-  // canvas size (przyszłościowo)
+  // canvas size
   if (canvas.width !== CANVAS_PX || canvas.height !== CANVAS_PX) {
     canvas.width = CANVAS_PX;
     canvas.height = CANVAS_PX;
@@ -1845,8 +1855,9 @@ async function applyProductConfig(cfg) {
   // UI title/subtitle
   const sizeW = cfg.product.size_mm.w;
   const sizeH = cfg.product.size_mm.h;
+  const autoTitle = cfg.ui.title || cfg.product.name || "Edytor produktu";
   const autoSub = cfg.ui.subtitle || `Projekt ${sizeW}×${sizeH} mm (spad).`;
-  setUiTitleSubtitle(cfg.ui.title, autoSub);
+  setUiTitleSubtitle(autoTitle, autoSub);
 
   // shapes availability
   const shapeOptions = (cfg.product.shape_options || ["square", "circle"]).map(String);
@@ -1870,7 +1881,6 @@ async function applyProductConfig(cfg) {
     toast("Nie udało się wczytać szablonów.");
   }
 
-  // wysyłka: tylko backend
   refreshExportButtons();
   updateStatusBar();
 }
@@ -1884,28 +1894,23 @@ async function applyProductConfig(cfg) {
   applyNickFromUrlIfEmpty();
   syncFreeMoveButton();
 
-  // minimalny stan startowy zanim przyjdzie config
   setUiTitleSubtitle("Edytor", "Ładowanie konfiguracji…");
   refreshExportButtons();
 
-  // 1) spróbuj backend config po tokenie
   const cfg = await loadConfigFromBackend(TOKEN);
 
   if (cfg) {
     await applyProductConfig(cfg);
     toast("Konfiguracja załadowana ✅");
   } else {
-    // 2) fallback demo chooser
     await sleep(50);
     showProductFallbackChooser();
 
-    // w demo ustawiamy bezpieczny default w UI (żeby edytor nie był “pusty”)
     const demoCfg = normalizeProductConfig(DEMO_PRESETS[0], { token: "", mode: "demo" });
     await applyProductConfig(demoCfg);
     toast("Brak tokena/konfiguracji — tryb demo.");
   }
 
-  // start: template none, historia, status
   clearTemplateSelection({ skipHistory: true });
   redraw();
   updateStatusBar();
@@ -1915,4 +1920,4 @@ async function applyProductConfig(cfg) {
   dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-10-03 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-10-04 === */
