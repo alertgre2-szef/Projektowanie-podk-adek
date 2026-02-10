@@ -1,49 +1,51 @@
+// editor/editor.js
 /**
  * ============================================================
- * Edytor podkładek — wersja prosta (UX+)
- * FILE_VERSION: 2026-02-10-01
- * - Kłódka kadru: pomniejszanie poniżej 100% tylko po odblokowaniu 🔓
- * - Po ponownym zablokowaniu 🔒: jeśli zoom < 100% -> wraca do 100% i clamp
- * - Historia: respektuje min zoom zależny od kłódki
- * - Reszta: jak poprzednio (theme/rotate/json/UX)
+ * Edytor podkładek — kanałowo-neutralny start (token → productConfig)
+ * FILE_VERSION: 2026-02-10-03
+ *
+ * Kontrakt wejścia:
+ *  - uruchomienie: ?token=...
+ *  - GET /api/project?token=... → productConfig (stały format)
+ *  - fallback: prosty wybór produktu (tryb demo) jeśli token/konfig nieznana
+ *
+ * Future-proofing:
+ *  - brak twardych sekretów w JS (UPLOAD_TOKEN usunięty)
+ *  - endpointy i parametry z productConfig (z sensownymi defaultami)
+ *  - blokada “Wyślij do realizacji” w trybie demo (bez konfiguracji backendu)
  * ============================================================
  */
 
-/* ===================== [SEKCJA 1] STAŁE ===================== */
-const CANVAS_PX = 1181;
-const CUT_RATIO = 0.90;
-
-const PRINT_DPI = 300;
-
-const DPI_WEAK_MAX = 50;
-const DPI_MED_MAX = 100;
-const DPI_GOOD_MAX = 200;
-
+/* ===================== [SEKCJA 1] UTIL + DEBUG ===================== */
 const REPO_BASE = (() => {
   const p = location.pathname;
   const i = p.indexOf("/editor/");
   return i >= 0 ? p.slice(0, i) : "";
 })();
 
-const CACHE_VERSION = "2026-02-09-21";
+/** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
+const CACHE_VERSION = "2026-02-10-03";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
-  return `${url}?v=${encodeURIComponent(CACHE_VERSION)}`;
+  // zachowaj istniejące query, dodaj v=
+  try {
+    const u = new URL(url, location.origin);
+    u.searchParams.set("v", CACHE_VERSION);
+    return u.toString();
+  } catch {
+    const glue = String(url).includes("?") ? "&" : "?";
+    return `${url}${glue}v=${encodeURIComponent(CACHE_VERSION)}`;
+  }
 }
 
-/** Debug toggle:
- *  - dodaj ?debug=1 w URL albo localStorage.EDITOR_DEBUG = "1"
- */
+/** Debug toggle: ?debug=1 lub localStorage.EDITOR_DEBUG="1" */
 const DEBUG =
   (typeof location !== "undefined" && (location.search || "").includes("debug=1")) ||
   (typeof localStorage !== "undefined" && localStorage.getItem("EDITOR_DEBUG") === "1");
 
 function dlog(...args) { if (DEBUG) console.log("[EDITOR]", ...args); }
 function derr(...args) { console.error("[EDITOR]", ...args); }
-
-/* ===================== [THEME] ===================== */
-const THEME_KEY = "EDITOR_THEME"; // "light" | "dark"
 
 function getQueryParam(name) {
   try {
@@ -52,19 +54,21 @@ function getQueryParam(name) {
     return (v || "").trim();
   } catch { return ""; }
 }
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+/* ===================== [THEME] ===================== */
+const THEME_KEY = "EDITOR_THEME"; // "light" | "dark"
 
 function systemPrefersDark() {
   try { return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches; }
   catch { return false; }
 }
-
 function normalizeTheme(v) {
   const x = String(v || "").toLowerCase().trim();
   if (x === "dark" || x === "ciemny") return "dark";
   if (x === "light" || x === "jasny") return "light";
   return "";
 }
-
 function applyTheme(theme, { persist = true } = {}) {
   const t = normalizeTheme(theme) || "light";
   document.documentElement.dataset.theme = t;
@@ -78,7 +82,6 @@ function applyTheme(theme, { persist = true } = {}) {
     try { localStorage.setItem(THEME_KEY, t); } catch {}
   }
 }
-
 function initTheme() {
   const fromUrl = normalizeTheme(getQueryParam("theme"));
   if (fromUrl) { applyTheme(fromUrl, { persist: true }); return; }
@@ -89,7 +92,6 @@ function initTheme() {
 
   applyTheme(systemPrefersDark() ? "dark" : "light", { persist: false });
 }
-
 function wireThemeButtons() {
   const bL = document.getElementById("btnThemeLight");
   const bD = document.getElementById("btnThemeDark");
@@ -104,7 +106,6 @@ function _parseHashParams() {
   try { return new URLSearchParams(h.includes("=") ? h : ""); }
   catch { return new URLSearchParams(); }
 }
-
 function getUrlParamAny(keys) {
   const sp = new URLSearchParams(location.search || "");
   const hp = _parseHashParams();
@@ -116,14 +117,10 @@ function getUrlParamAny(keys) {
   }
   return "";
 }
-
 function getNickFromUrl() { return getUrlParamAny(["nick", "n", "order", "order_id"]); }
 function getOrderIdFromUrl() { return getUrlParamAny(["order_id", "order"]); }
 
-/**
- * Self-test: wymagane elementy DOM (krytyczne do działania).
- * Modal jest opcjonalny (mamy fallback na toast/fokus).
- */
+/* ===================== [SEKCJA 1C] DOM SELF-TEST ===================== */
 const REQUIRED_IDS = [
   "canvas",
   "preview",
@@ -134,13 +131,12 @@ const REQUIRED_IDS = [
   "btnSendToProduction",
   "toastContainer",
   "statusBar",
+  "appTitleText",
+  "appSubtitleText",
 ];
-
 function checkRequiredDom() {
   const missing = [];
-  for (const id of REQUIRED_IDS) {
-    if (!document.getElementById(id)) missing.push(id);
-  }
+  for (const id of REQUIRED_IDS) if (!document.getElementById(id)) missing.push(id);
   const ok = missing.length === 0;
 
   const report = { ok, missing, cache_version: CACHE_VERSION };
@@ -156,20 +152,6 @@ function checkRequiredDom() {
   }
   return report;
 }
-
-/**
- * Docelowe maski:
- * /editor/assets/masks/mask_square.png
- * /editor/assets/masks/mask_circle.png
- */
-const MASK_URLS = {
-  square: `${REPO_BASE}/editor/assets/masks/mask_square.png`,
-  circle: `${REPO_BASE}/editor/assets/masks/mask_circle.png`,
-};
-
-/* ===================== [UPLOAD DO REALIZACJI] ===================== */
-const UPLOAD_ENDPOINT = `${REPO_BASE}/api/upload.php`;
-const UPLOAD_TOKEN = "4f9c7d2a8e1b5f63c0a9e72d41f8b6c39e5a0d7f1b2c8e4a6d9f3c1b7e0a2f5";
 
 /* ===================== [SEKCJA 2] DOM ===================== */
 const domReport = checkRequiredDom();
@@ -202,7 +184,6 @@ const btnRotateRight = document.getElementById("btnRotateRight");
 const btnRotateReset = document.getElementById("btnRotateReset");
 
 const btnFreeMove = document.getElementById("btnFreeMove");
-
 const btnSendToProduction = document.getElementById("btnSendToProduction");
 
 const statusBar = document.getElementById("statusBar");
@@ -221,6 +202,8 @@ const errorOverlayMsg = document.getElementById("errorOverlayMsg");
 const errorOverlayRetry = document.getElementById("errorOverlayRetry");
 const errorOverlayClose = document.getElementById("errorOverlayClose");
 
+const productionHint = document.getElementById("productionHint");
+
 // MODAL nick (opcjonalne)
 const nickModal = document.getElementById("nickModal");
 const nickModalInput = document.getElementById("nickModalInput");
@@ -228,6 +211,11 @@ const nickModalClose = document.getElementById("nickModalClose");
 const nickModalCancel = document.getElementById("nickModalCancel");
 const nickModalSave = document.getElementById("nickModalSave");
 const nickModalHint = document.getElementById("nickModalHint");
+
+// fallback product selector (opcjonalne)
+const productSelectCard = document.getElementById("productSelectCard");
+const productSelect = document.getElementById("productSelect");
+const btnApplyProductSelect = document.getElementById("btnApplyProductSelect");
 
 // touch
 canvas.style.touchAction = "none";
@@ -239,113 +227,7 @@ function updateUiVersionBadge() {
   el.textContent = " • v" + CACHE_VERSION;
 }
 
-/* ===================== [SEKCJA 2B] MASKA PNG ===================== */
-let maskEl = null;
-
-function ensureMaskEl() {
-  if (!previewEl) return null;
-  if (maskEl && maskEl.isConnected) return maskEl;
-
-  const byId = document.getElementById("maskOverlay");
-  if (byId) {
-    byId.classList.add("maskOverlay");
-    byId.alt = "";
-    byId.setAttribute("aria-hidden", "true");
-    byId.draggable = false;
-    maskEl = byId;
-    return maskEl;
-  }
-
-  maskEl = previewEl.querySelector("img.maskOverlay");
-  if (maskEl) return maskEl;
-
-  const img = document.createElement("img");
-  img.className = "maskOverlay";
-  img.alt = "";
-  img.setAttribute("aria-hidden", "true");
-  img.draggable = false;
-
-  previewEl.appendChild(img);
-  maskEl = img;
-  return maskEl;
-}
-
-function applyMaskForShape(nextShape) {
-  const el = ensureMaskEl();
-  if (!el) return;
-
-  const raw = nextShape === "circle" ? MASK_URLS.circle : MASK_URLS.square;
-  el.style.display = "block";
-  el.src = withV(raw);
-}
-
-/* ===================== [SEKCJA 2C] NICK/ORDER ID Z URL ===================== */
-const urlNickRaw = getNickFromUrl();
-const urlOrderIdRaw = getOrderIdFromUrl();
-
-function applyNickFromUrlIfEmpty() {
-  if (!nickInput) return;
-  const current = (nickInput.value || "").trim();
-  if (current) return;
-
-  const v = (urlNickRaw || urlOrderIdRaw || "").trim();
-  if (!v) return;
-
-  nickInput.value = v;
-}
-
-/* ===================== [SEKCJA 3] STAN ===================== */
-let shape = "square";
-let uploadedImg = null;
-let currentTemplate = null;
-let templateEditImg = null;
-
-let coverScale = 1;
-let userScale = 1;
-let offsetX = 0;
-let offsetY = 0;
-
-// obrót
-let rotationDeg = 0; // -180..180
-function normDeg(d) {
-  let x = Number(d) || 0;
-  x = ((x % 360) + 360) % 360;
-  if (x > 180) x -= 360;
-  return x;
-}
-function degToRad(d) { return (d * Math.PI) / 180; }
-
-// kłódka kadru
-let freeMove = false; // false = clamp (bezpiecznie), true = swobodnie
-
-// ✅ min zoom zależny od kłódki
-const MIN_USER_SCALE_LOCKED = 1.0;  // 🔒
-const MIN_USER_SCALE_FREE = 0.10;   // 🔓 (możesz ustawić 0.05, jeśli chcesz)
-const MAX_USER_SCALE = 6.0;
-
-function getMinUserScale() {
-  return freeMove ? MIN_USER_SCALE_FREE : MIN_USER_SCALE_LOCKED;
-}
-
-/* ===================== [DIRTY STATE] ===================== */
-let isDirty = false;
-function markDirty() { isDirty = true; }
-function markClean() { isDirty = false; }
-
-function shouldWarnBeforeUnload() {
-  if (productionLocked) return false;
-  if (!isDirty) return false;
-  if (finalOverlay && finalOverlay.style.display === "flex") return false;
-  return true;
-}
-
-window.addEventListener("beforeunload", (e) => {
-  if (!shouldWarnBeforeUnload()) return;
-  e.preventDefault();
-  e.returnValue = "";
-});
-
-/* ===================== [SEKCJA 3B] TOAST + STATUS + HISTORIA + JAKOŚĆ ===================== */
+/* ===================== [SEKCJA 2B] TOAST ===================== */
 const TOAST_DEFAULT_MS = 10000;
 
 function toast(msg, ms = TOAST_DEFAULT_MS) {
@@ -382,20 +264,302 @@ function toast(msg, ms = TOAST_DEFAULT_MS) {
   timer = window.setTimeout(() => removeToast(), ms);
 }
 
-function fmtZoomPct() { return `${Math.round(userScale * 100)}%`; }
+/* ===================== [SEKCJA 3] productConfig (token → backend → fallback) ===================== */
+/**
+ * Stały “wewnętrzny” format po normalizacji (to jest ważne future-proofing):
+ * {
+ *   schema_version: 1,
+ *   mode: "backend"|"demo",
+ *   token: string,
+ *   ui: { title, subtitle },
+ *   product: { type, size_mm:{w,h}, corner_radius_mm, shape_default, shape_options:[...] },
+ *   render: { canvas_px, cut_ratio, print_dpi },
+ *   assets: { masks: {square, circle}, templates: { list_urls:[...], folder_base } },
+ *   api: { project_url, upload_url },
+ *   auth: { upload_token?: string } // opcjonalnie z backendu (wtedy użyjemy)
+ * }
+ */
 
+const TOKEN = getQueryParam("token");
+
+function setUiTitleSubtitle(title, subtitle) {
+  const t = document.getElementById("appTitleText");
+  const s = document.getElementById("appSubtitleText");
+  if (t && typeof title === "string") t.textContent = title;
+  if (s && typeof subtitle === "string") s.textContent = subtitle;
+}
+
+function absUrlMaybe(relativeOrAbs) {
+  if (!relativeOrAbs) return "";
+  try { return new URL(relativeOrAbs, location.origin).toString(); }
+  catch { return String(relativeOrAbs); }
+}
+
+async function fetchJsonWithTimeout(url, { timeoutMs = 6500 } = {}) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, { cache: "no-store", signal: ac.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function normalizeProductConfig(raw, { token, mode }) {
+  // bezpieczne defaulty
+  const schema_version = 1;
+
+  const ui = {
+    title: (raw?.ui?.title ?? raw?.title ?? "Edytor produktu").toString(),
+    subtitle: (raw?.ui?.subtitle ?? raw?.subtitle ?? "").toString(),
+  };
+
+  const product = {
+    type: (raw?.product?.type ?? raw?.type ?? "coaster").toString(),
+    size_mm: {
+      w: Number(raw?.product?.size_mm?.w ?? raw?.size_mm?.w ?? 100) || 100,
+      h: Number(raw?.product?.size_mm?.h ?? raw?.size_mm?.h ?? 100) || 100,
+    },
+    corner_radius_mm: Number(raw?.product?.corner_radius_mm ?? raw?.corner_radius_mm ?? 5) || 0,
+    shape_default: (raw?.product?.shape_default ?? raw?.shape_default ?? "square").toString(),
+    shape_options: Array.isArray(raw?.product?.shape_options)
+      ? raw.product.shape_options.map(String)
+      : ["square", "circle"],
+  };
+
+  const render = {
+    canvas_px: Number(raw?.render?.canvas_px ?? raw?.canvas_px ?? 1181) || 1181,
+    cut_ratio: Number(raw?.render?.cut_ratio ?? raw?.cut_ratio ?? 0.90) || 0.90,
+    print_dpi: Number(raw?.render?.print_dpi ?? raw?.print_dpi ?? 300) || 300,
+  };
+
+  // masks: allow override from backend; otherwise default repo paths
+  const masks = {
+    square: absUrlMaybe(raw?.assets?.masks?.square) || `${REPO_BASE}/editor/assets/masks/mask_square.png`,
+    circle: absUrlMaybe(raw?.assets?.masks?.circle) || `${REPO_BASE}/editor/assets/masks/mask_circle.png`,
+  };
+
+  // templates list candidates: backend may provide urls; fallback to existing
+  const list_urls_raw = raw?.assets?.templates?.list_urls;
+  const list_urls = Array.isArray(list_urls_raw) && list_urls_raw.length
+    ? list_urls_raw.map(absUrlMaybe)
+    : [
+        `${REPO_BASE}/api/templates.php`,
+        `${REPO_BASE}/assets/templates/list.json`,
+        `${REPO_BASE}/assets/templates/index.json`,
+      ];
+
+  const folder_base =
+    absUrlMaybe(raw?.assets?.templates?.folder_base) ||
+    `${REPO_BASE}/assets/templates/coasters/`;
+
+  const api = {
+    project_url: absUrlMaybe(raw?.api?.project_url) || `${REPO_BASE}/api/project`,
+    upload_url: absUrlMaybe(raw?.api?.upload_url) || `${REPO_BASE}/api/upload.php`,
+  };
+
+  const auth = {
+    upload_token: raw?.auth?.upload_token ? String(raw.auth.upload_token) : "",
+  };
+
+  return {
+    schema_version,
+    mode,
+    token: token || "",
+    ui,
+    product,
+    render,
+    assets: { masks, templates: { list_urls, folder_base } },
+    api,
+    auth,
+    raw: DEBUG ? raw : undefined,
+  };
+}
+
+async function loadConfigFromBackend(token) {
+  if (!token) return null;
+
+  const projectUrl = `${REPO_BASE}/api/project?token=${encodeURIComponent(token)}`;
+
+  try {
+    const raw = await fetchJsonWithTimeout(projectUrl, { timeoutMs: 6500 });
+
+    // Akceptujemy dwa warianty:
+    //  1) backend zwraca bezpośrednio productConfig
+    //  2) backend zwraca { ok:true, productConfig:{...} }
+    const cfgRaw = raw?.productConfig ? raw.productConfig : raw;
+
+    if (!cfgRaw || typeof cfgRaw !== "object") throw new Error("Nieprawidłowa konfiguracja");
+
+    return normalizeProductConfig(cfgRaw, { token, mode: "backend" });
+  } catch (e) {
+    dlog("loadConfigFromBackend failed:", e);
+    return null;
+  }
+}
+
+const DEMO_PRESETS = [
+  {
+    id: "coaster_square_100_r5",
+    ui: { title: "Edytor podkładki", subtitle: "Projekt 10×10 cm (spad)." },
+    product: { type: "coaster", size_mm: { w: 100, h: 100 }, corner_radius_mm: 5, shape_default: "square", shape_options: ["square", "circle"] },
+    render: { canvas_px: 1181, cut_ratio: 0.90, print_dpi: 300 },
+  },
+  {
+    id: "coaster_circle_100",
+    ui: { title: "Edytor podkładki", subtitle: "Projekt 10 cm (okrąg, spad)." },
+    product: { type: "coaster", size_mm: { w: 100, h: 100 }, corner_radius_mm: 0, shape_default: "circle", shape_options: ["circle", "square"] },
+    render: { canvas_px: 1181, cut_ratio: 0.90, print_dpi: 300 },
+  },
+];
+
+function showProductFallbackChooser() {
+  if (!productSelectCard || !productSelect || !btnApplyProductSelect) {
+    toast("Brak konfiguracji — uruchom edytor z ?token=... (backend).");
+    return;
+  }
+
+  productSelectCard.style.display = "block";
+  productSelect.innerHTML = `<option value="">— wybierz —</option>` +
+    DEMO_PRESETS.map(p => `<option value="${p.id}">${p.ui.title} — ${p.ui.subtitle}</option>`).join("");
+
+  btnApplyProductSelect.disabled = true;
+
+  productSelect.addEventListener("change", () => {
+    btnApplyProductSelect.disabled = !productSelect.value;
+  });
+
+  btnApplyProductSelect.addEventListener("click", async () => {
+    const id = productSelect.value;
+    const preset = DEMO_PRESETS.find(p => p.id === id);
+    if (!preset) return;
+
+    const cfg = normalizeProductConfig(preset, { token: "", mode: "demo" });
+    await applyProductConfig(cfg);
+    toast("Tryb demo uruchomiony (bez wysyłki).");
+    productSelectCard.style.display = "none";
+  });
+
+  setUiTitleSubtitle("Edytor (tryb demo)", "Wybierz produkt, aby kontynuować bez tokena.");
+}
+
+/* ===================== [SEKCJA 4] RUNTIME PARAMS (z configu) ===================== */
+let CANVAS_PX = 1181;
+let CUT_RATIO = 0.90;
+let PRINT_DPI = 300;
+
+const DPI_WEAK_MAX = 50;
+const DPI_MED_MAX = 100;
+const DPI_GOOD_MAX = 200;
+
+/* ===================== [MASKA PNG] ===================== */
+let maskEl = null;
+let MASK_URLS = {
+  square: `${REPO_BASE}/editor/assets/masks/mask_square.png`,
+  circle: `${REPO_BASE}/editor/assets/masks/mask_circle.png`,
+};
+
+function ensureMaskEl() {
+  if (!previewEl) return null;
+  if (maskEl && maskEl.isConnected) return maskEl;
+
+  const byId = document.getElementById("maskOverlay");
+  if (byId) {
+    byId.classList.add("maskOverlay");
+    byId.alt = "";
+    byId.setAttribute("aria-hidden", "true");
+    byId.draggable = false;
+    maskEl = byId;
+    return maskEl;
+  }
+
+  maskEl = previewEl.querySelector("img.maskOverlay");
+  if (maskEl) return maskEl;
+
+  const img = document.createElement("img");
+  img.className = "maskOverlay";
+  img.alt = "";
+  img.setAttribute("aria-hidden", "true");
+  img.draggable = false;
+
+  previewEl.appendChild(img);
+  maskEl = img;
+  return maskEl;
+}
+function applyMaskForShape(nextShape) {
+  const el = ensureMaskEl();
+  if (!el) return;
+
+  const raw = nextShape === "circle" ? MASK_URLS.circle : MASK_URLS.square;
+  el.style.display = "block";
+  el.src = withV(raw);
+}
+
+/* ===================== [SEKCJA 5] STAN ===================== */
+let productConfig = null; // po applyProductConfig
+
+let shape = "square";
+let uploadedImg = null;
+
+let currentTemplate = null;
+let templateEditImg = null;
+
+let coverScale = 1;
+let userScale = 1;
+let offsetX = 0;
+let offsetY = 0;
+
+// obrót
+let rotationDeg = 0; // -180..180
+function normDeg(d) {
+  let x = Number(d) || 0;
+  x = ((x % 360) + 360) % 360;
+  if (x > 180) x -= 360;
+  return x;
+}
+function degToRad(d) { return (d * Math.PI) / 180; }
+
+// kłódka kadru
+let freeMove = false; // false = clamp (bezpiecznie), true = swobodnie
+const MIN_USER_SCALE_LOCKED = 1.0;  // 🔒
+const MIN_USER_SCALE_FREE = 0.10;   // 🔓
+const MAX_USER_SCALE = 6.0;
+function getMinUserScale() { return freeMove ? MIN_USER_SCALE_FREE : MIN_USER_SCALE_LOCKED; }
+
+/* ===================== [DIRTY STATE] ===================== */
+let isDirty = false;
+let productionLocked = false;
+
+function markDirty() { isDirty = true; }
+function markClean() { isDirty = false; }
+
+function shouldWarnBeforeUnload() {
+  if (productionLocked) return false;
+  if (!isDirty) return false;
+  if (finalOverlay && finalOverlay.style.display === "flex") return false;
+  return true;
+}
+window.addEventListener("beforeunload", (e) => {
+  if (!shouldWarnBeforeUnload()) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
+
+/* ===================== [SEKCJA 6] STATUS BAR + JAKOŚĆ ===================== */
+function fmtZoomPct() { return `${Math.round(userScale * 100)}%`; }
 function templateName() {
   if (!currentTemplate) return "—";
   return currentTemplate?.name || currentTemplate?.id || "—";
 }
-
 function getEffectiveDpi() {
   if (!uploadedImg) return null;
   const s = coverScale * userScale;
   if (!s || s <= 0) return null;
   return PRINT_DPI / s;
 }
-
 function qualityLabelFromDpi(dpi) {
   if (dpi == null) return "—";
   if (dpi < DPI_WEAK_MAX) return "Słaba";
@@ -403,7 +567,6 @@ function qualityLabelFromDpi(dpi) {
   if (dpi < DPI_GOOD_MAX) return "Dobra";
   return "Super";
 }
-
 function applyStatusBarQualityStyle(dpi) {
   if (!statusBar) return;
 
@@ -421,14 +584,12 @@ function applyStatusBarQualityStyle(dpi) {
 }
 
 let qualityWarnLevel = 0;
-
 function levelFromDpi(dpi) {
   if (dpi == null) return 0;
   if (dpi < DPI_WEAK_MAX) return 2;
   if (dpi < DPI_MED_MAX) return 1;
   return 0;
 }
-
 function maybeWarnQuality(force = false) {
   if (!uploadedImg) return;
 
@@ -453,27 +614,45 @@ function updateStatusBar() {
   const rot = rotationDeg ? `${rotationDeg}°` : "0°";
   const lockStr = freeMove ? "Swobodny" : "Zablokowany";
 
+  const prod = productConfig?.product?.type ? String(productConfig.product.type) : "—";
+  const mmW = productConfig?.product?.size_mm?.w ?? 0;
+  const mmH = productConfig?.product?.size_mm?.h ?? 0;
+
   statusBar.textContent =
-    `Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | Obrót: ${rot} | Kadr: ${lockStr} | DPI: ${dpiStr} | Jakość: ${q}`;
+    `Produkt: ${prod} ${mmW}×${mmH}mm | Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | Obrót: ${rot} | Kadr: ${lockStr} | DPI: ${dpiStr} | Jakość: ${q}`;
 
   applyStatusBarQualityStyle(dpi);
 }
 
-/* ===================== [EXPORT BUTTONS ENABLED STATE] ===================== */
+/* ===================== [EXPORT ENABLED STATE] ===================== */
 function refreshExportButtons() {
   const hasPhoto = !!uploadedImg;
   if (btnDownloadPreview) btnDownloadPreview.disabled = !hasPhoto || productionLocked;
-  if (btnSendToProduction) btnSendToProduction.disabled = productionLocked;
+
+  // wyślij do realizacji: tylko gdy backend config (mode=backend)
+  const canSend = productConfig?.mode === "backend";
+  if (btnSendToProduction) btnSendToProduction.disabled = productionLocked || !canSend;
+
+  if (productionHint) {
+    if (!canSend) {
+      productionHint.innerHTML =
+        `Tryb demo: <b>wysyłka zablokowana</b>. Uruchom edytor z <code>?token=...</code>, aby wysyłać do realizacji.`;
+    } else {
+      productionHint.innerHTML =
+        `Po wysłaniu projekt trafia do produkcji i <b>nie będzie można wprowadzić zmian</b>.`;
+    }
+  }
 }
 
 /* ===================== [KŁÓDKA KADRU] ===================== */
 function syncFreeMoveButton() {
   if (!btnFreeMove) return;
-  // freeMove=true => odblokowane => ikona 🔓
   btnFreeMove.classList.toggle("active", freeMove === true);
   btnFreeMove.setAttribute("aria-pressed", freeMove ? "true" : "false");
   btnFreeMove.textContent = freeMove ? "🔓 Kadr" : "🔒 Kadr";
 }
+
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
 function setFreeMove(next, { silent = false, skipHistory = false } = {}) {
   const n = !!next;
@@ -492,9 +671,6 @@ function setFreeMove(next, { silent = false, skipHistory = false } = {}) {
   freeMove = n;
   syncFreeMoveButton();
 
-  // Po ponownym zablokowaniu:
-  // - jeśli zoom jest < 100%, wróć do 100% (bezpiecznie)
-  // - dociśnij offsety
   if (!freeMove) {
     if (userScale < MIN_USER_SCALE_LOCKED) userScale = MIN_USER_SCALE_LOCKED;
     applyClampToOffsets();
@@ -507,19 +683,13 @@ function setFreeMove(next, { silent = false, skipHistory = false } = {}) {
   if (!skipHistory) markDirty();
 }
 
-if (btnFreeMove) {
-  btnFreeMove.addEventListener("click", () => {
-    setFreeMove(!freeMove);
-  });
-}
+if (btnFreeMove) btnFreeMove.addEventListener("click", () => setFreeMove(!freeMove));
 
-/* ---- Undo/Redo (5 kroków) ---- */
+/* ===================== [HISTORIA] (5 kroków) ===================== */
 const HISTORY_MAX = 5;
 let history = [];
 let historyIndex = -1;
 let suppressHistory = false;
-
-function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
 function snapshot() {
   return {
@@ -532,7 +702,6 @@ function snapshot() {
     templateId: currentTemplate ? currentTemplate.id : null,
   };
 }
-
 function sameSnap(a, b) {
   if (!a || !b) return false;
   return (
@@ -545,7 +714,6 @@ function sameSnap(a, b) {
     a.templateId === b.templateId
   );
 }
-
 function pushHistory() {
   if (suppressHistory) return;
 
@@ -556,12 +724,11 @@ function pushHistory() {
   if (historyIndex < history.length - 1) history = history.slice(0, historyIndex + 1);
 
   history.push(snap);
-
   if (history.length > HISTORY_MAX) history.shift();
   historyIndex = history.length - 1;
+
   updateUndoRedoButtons();
 }
-
 function updateUndoRedoButtons() {
   if (btnUndo) btnUndo.disabled = historyIndex <= 0;
   if (btnRedo) btnRedo.disabled = historyIndex >= history.length - 1;
@@ -569,7 +736,6 @@ function updateUndoRedoButtons() {
   if (btnUndo) btnUndo.style.opacity = btnUndo.disabled ? "0.5" : "1";
   if (btnRedo) btnRedo.style.opacity = btnRedo.disabled ? "0.5" : "1";
 }
-
 async function applyStateFromHistory(snap) {
   if (!snap) return;
 
@@ -594,7 +760,6 @@ async function applyStateFromHistory(snap) {
   offsetX = snap.offsetX;
   offsetY = snap.offsetY;
 
-  // jeśli zablokowane — dociśnij
   if (!freeMove) applyClampToOffsets();
 
   redraw();
@@ -603,22 +768,33 @@ async function applyStateFromHistory(snap) {
   suppressHistory = false;
   updateUndoRedoButtons();
 }
-
 async function undo() {
   if (historyIndex <= 0) return;
   historyIndex--;
   await applyStateFromHistory(history[historyIndex]);
   markDirty();
 }
-
 async function redo() {
   if (historyIndex >= history.length - 1) return;
   historyIndex++;
   await applyStateFromHistory(history[historyIndex]);
   markDirty();
 }
+if (btnUndo) btnUndo.addEventListener("click", undo);
+if (btnRedo) btnRedo.addEventListener("click", redo);
 
-/* ===================== [SEKCJA 4] KSZTAŁT ===================== */
+/* ===================== [SEKCJA 7] KSZTAŁT ===================== */
+function setShapeButtonsAvailability(options) {
+  const hasSquare = options.includes("square");
+  const hasCircle = options.includes("circle");
+
+  if (btnSquare) btnSquare.style.display = hasSquare ? "" : "none";
+  if (btnCircle) btnCircle.style.display = hasCircle ? "" : "none";
+
+  const group = document.getElementById("shapeToggle");
+  if (group) group.style.display = (hasSquare || hasCircle) ? "" : "none";
+}
+
 async function setShape(next, opts = {}) {
   shape = next;
 
@@ -633,11 +809,10 @@ async function setShape(next, opts = {}) {
   if (!opts.skipHistory) pushHistory();
   if (!opts.skipHistory) markDirty();
 }
-
 if (btnSquare) btnSquare.addEventListener("click", () => setShape("square"));
 if (btnCircle) btnCircle.addEventListener("click", () => setShape("circle"));
 
-/* ===================== [SEKCJA 5] RYSOWANIE ===================== */
+/* ===================== [SEKCJA 8] RYSOWANIE ===================== */
 function clear() {
   ctx.clearRect(0, 0, CANVAS_PX, CANVAS_PX);
   ctx.fillStyle = "#ffffff";
@@ -662,7 +837,7 @@ function ensureCoverScaleForRotation() {
 
 function applyClampToOffsets() {
   if (!uploadedImg) return;
-  if (freeMove) return; // KLUCZ: odblokowany kadr => bez clamp
+  if (freeMove) return;
 
   const iw = uploadedImg.naturalWidth;
   const ih = uploadedImg.naturalHeight;
@@ -724,7 +899,7 @@ function redraw() {
   drawTemplateEditOverlay();
 }
 
-/* ===================== [SEKCJA 6] WCZYTANIE ZDJĘCIA ===================== */
+/* ===================== [SEKCJA 9] WCZYTANIE ZDJĘCIA ===================== */
 function resetPhotoTransformToCover() {
   if (!uploadedImg) return;
 
@@ -735,7 +910,6 @@ function resetPhotoTransformToCover() {
   offsetX = 0;
   offsetY = 0;
 
-  // powrót do bezpiecznego trybu po wgraniu zdjęcia
   freeMove = false;
   syncFreeMoveButton();
 
@@ -765,7 +939,6 @@ if (photoInput) {
       maybeWarnQuality(true);
 
       markDirty();
-
       URL.revokeObjectURL(url);
     };
 
@@ -788,12 +961,10 @@ function setRotation(nextDeg, opts = {}) {
   if (!opts.skipHistory) pushHistory();
   if (!opts.skipHistory) markDirty();
 }
-
 function rotateBy(deltaDeg) {
   setRotation(rotationDeg + deltaDeg);
   toast(`Obrócono: ${rotationDeg}°`);
 }
-
 if (btnRotateLeft) btnRotateLeft.addEventListener("click", () => rotateBy(-30));
 if (btnRotateRight) btnRotateRight.addEventListener("click", () => rotateBy(+30));
 if (btnRotateReset) btnRotateReset.addEventListener("click", () => setRotation(0));
@@ -962,7 +1133,6 @@ function endPointer(e) {
 
   e.preventDefault();
 }
-
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("pointerleave", endPointer);
@@ -991,7 +1161,7 @@ function wheelHistoryCommit() {
   }, 180);
 }
 
-/* ===================== [TOOLBAR] ===================== */
+/* TOOLBAR */
 if (btnFit) btnFit.addEventListener("click", fitToCover);
 if (btnCenter) btnCenter.addEventListener("click", centerPhoto);
 
@@ -1003,12 +1173,10 @@ if (btnZoomIn) {
     markDirty();
   });
 }
-
 if (btnZoomOut) {
   btnZoomOut.addEventListener("click", () => {
     if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
 
-    // UX: podpowiedź tylko dla kliknięcia "-", bez spamu na wheel/pinch
     if (!freeMove && userScale <= MIN_USER_SCALE_LOCKED + 1e-6) {
       toast("Aby bardziej pomniejszyć, odblokuj 🔓 Kadr.");
       return;
@@ -1020,10 +1188,7 @@ if (btnZoomOut) {
   });
 }
 
-if (btnUndo) btnUndo.addEventListener("click", undo);
-if (btnRedo) btnRedo.addEventListener("click", redo);
-
-/* ===================== [SEKCJA 7] SZABLONY ===================== */
+/* ===================== [SEKCJA 10] SZABLONY ===================== */
 async function fetchJsonFirstOk(urls) {
   let lastErr = null;
   for (const u of urls) {
@@ -1036,8 +1201,8 @@ async function fetchJsonFirstOk(urls) {
   throw lastErr || new Error("Brak źródła JSON");
 }
 
-async function loadTemplates() {
-  const candidates = [
+async function loadTemplatesFromConfig() {
+  const candidates = productConfig?.assets?.templates?.list_urls || [
     `${REPO_BASE}/api/templates.php`,
     `${REPO_BASE}/assets/templates/list.json`,
     `${REPO_BASE}/assets/templates/index.json`,
@@ -1057,8 +1222,14 @@ async function loadTemplates() {
   return [{ id: "__none__", name: "Brak szablonu" }, ...normalized];
 }
 
+function templateFolderBase() {
+  return productConfig?.assets?.templates?.folder_base || `${REPO_BASE}/assets/templates/coasters/`;
+}
 function templateFolderUrl(id) {
-  return `${REPO_BASE}/assets/templates/coasters/${encodeURIComponent(id)}/`;
+  const base = templateFolderBase();
+  // base ma kończyć się /
+  const b = base.endsWith("/") ? base : (base + "/");
+  return `${b}${encodeURIComponent(id)}/`;
 }
 
 function renderTemplateGrid(templates) {
@@ -1127,13 +1298,12 @@ function clearTemplateSelection(opts = {}) {
   if (!opts.skipHistory) pushHistory();
 }
 
-/* ===================== [SEKCJA 8] EKSPORT / NAZWY ===================== */
+/* ===================== [SEKCJA 11] EXPORT / NAZWY ===================== */
 function safeFileToken(raw, fallback = "projekt") {
   let s = String(raw || "").trim();
   if (!s) return fallback;
 
   s = s.normalize("NFC");
-
   s = s.replace(/[\u0000-\u001F\u007F]/g, "");
   s = s.replace(/[\\\/:*?"<>|]/g, "_");
   s = s.replace(/\s+/g, "_").replace(/_+/g, "_").replace(/^\.+/, "");
@@ -1141,7 +1311,6 @@ function safeFileToken(raw, fallback = "projekt") {
 
   return s || fallback;
 }
-
 function sanitizeFileBase(raw) { return safeFileToken(raw, "projekt"); }
 function sanitizeOrderId(raw) { return safeFileToken(raw, "").slice(0, 60); }
 
@@ -1154,16 +1323,15 @@ if (btnDownloadPreview) {
 
     const a = document.createElement("a");
     const nick = sanitizeFileBase(nickInput?.value);
-    a.download = `${nick}_preview.jpg`;
+    const pid = productConfig?.product?.type ? safeFileToken(productConfig.product.type, "produkt") : "produkt";
+    a.download = `${nick}_${pid}_preview.jpg`;
     a.href = canvas.toDataURL("image/jpeg", 0.70);
     a.click();
     toast("Zapisano PODGLĄD JPG ✅");
   });
 }
 
-/* ===================== [SEKCJA 8B] WYŚLIJ DO REALIZACJI ===================== */
-let productionLocked = false;
-
+/* ===================== [SEKCJA 12] OVERLAYS + LOCK UI ===================== */
 function setBusyOverlay(visible, msg) {
   if (!busyOverlay) return;
   busyOverlay.style.display = visible ? "flex" : "none";
@@ -1247,6 +1415,78 @@ function closeErrorOverlay() {
   document.body.style.overflow = "";
 }
 
+/* ===================== [SEKCJA 13] WYSYŁKA (kanałowo-neutralnie przez token) ===================== */
+const PROJECT_JSON_SCHEMA_VERSION = 1;
+
+function roundNum(x, digits = 6) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return null;
+  const m = Math.pow(10, digits);
+  return Math.round(n * m) / m;
+}
+
+function buildProjectJson() {
+  const nick = (nickInput?.value || "").trim();
+  const dpi = getEffectiveDpi();
+  const urlNickRaw = getNickFromUrl();
+  const urlOrderIdRaw = getOrderIdFromUrl();
+  const orderId =
+    sanitizeOrderId(urlOrderIdRaw) ||
+    sanitizeOrderId(nick) ||
+    "";
+
+  const nowIso = new Date().toISOString();
+
+  const payload = {
+    schema_version: PROJECT_JSON_SCHEMA_VERSION,
+    app: { name: "product-editor", version: CACHE_VERSION, repo_base: REPO_BASE },
+    created_at_iso: nowIso,
+    source_url: location.href,
+
+    order: {
+      nick: nick || "",
+      order_id: orderId || "",
+      url_nick_raw: urlNickRaw || "",
+      url_order_id_raw: urlOrderIdRaw || "",
+    },
+
+    product: {
+      type: productConfig?.product?.type || "unknown",
+      shape: shape,
+      size_mm: productConfig?.product?.size_mm || { w: 0, h: 0 },
+      corner_radius_mm: productConfig?.product?.corner_radius_mm ?? null,
+    },
+
+    template: currentTemplate
+      ? { id: String(currentTemplate.id || ""), name: String(currentTemplate.name || currentTemplate.id || "") }
+      : null,
+
+    transform: {
+      coverScale: roundNum(coverScale, 8),
+      userScale: roundNum(userScale, 8),
+      offsetX: roundNum(offsetX, 3),
+      offsetY: roundNum(offsetY, 3),
+      rotation_deg: rotationDeg,
+      free_move: freeMove,
+      canvas_px: CANVAS_PX,
+      print_dpi: PRINT_DPI,
+      cut_ratio: CUT_RATIO,
+    },
+
+    quality: { effective_dpi: dpi == null ? null : Math.round(dpi), label: qualityLabelFromDpi(dpi) },
+
+    // debug/legacy
+    cache_version: CACHE_VERSION,
+    ts_iso: nowIso,
+    nick: nick,
+    shape: shape,
+    dpi: dpi == null ? null : Math.round(dpi),
+    url: location.href,
+  };
+
+  return JSON.stringify(payload, null, 2);
+}
+
 function renderProductionWithPrintOverlayToBlob(mime, qualityOrNull) {
   return new Promise((resolve, reject) => {
     if (!uploadedImg) return reject(new Error("Brak zdjęcia"));
@@ -1300,90 +1540,37 @@ function renderProductionWithPrintOverlayToBlob(mime, qualityOrNull) {
     printImg.src = printUrl;
   });
 }
-
 function renderProductionJpgBlob() {
   return renderProductionWithPrintOverlayToBlob("image/jpeg", 1.0);
 }
 
-const PROJECT_JSON_SCHEMA_VERSION = 1;
-
-function roundNum(x, digits = 6) {
-  const n = Number(x);
-  if (!Number.isFinite(n)) return null;
-  const m = Math.pow(10, digits);
-  return Math.round(n * m) / m;
-}
-
-function buildProjectJson() {
-  const nick = (nickInput?.value || "").trim();
-  const dpi = getEffectiveDpi();
-  const orderId =
-    sanitizeOrderId(urlOrderIdRaw) ||
-    sanitizeOrderId(nick) ||
-    "";
-
-  const nowIso = new Date().toISOString();
-
-  const payload = {
-    schema_version: PROJECT_JSON_SCHEMA_VERSION,
-    app: { name: "coaster-editor", version: CACHE_VERSION, repo_base: REPO_BASE },
-    created_at_iso: nowIso,
-    source_url: location.href,
-
-    order: {
-      nick: nick || "",
-      order_id: orderId || "",
-      url_nick_raw: urlNickRaw || "",
-      url_order_id_raw: urlOrderIdRaw || "",
-    },
-
-    product: { type: "coaster", shape: shape, size_mm: { w: 100, h: 100 } },
-
-    template: currentTemplate
-      ? { id: String(currentTemplate.id || ""), name: String(currentTemplate.name || currentTemplate.id || "") }
-      : null,
-
-    transform: {
-      coverScale: roundNum(coverScale, 8),
-      userScale: roundNum(userScale, 8),
-      offsetX: roundNum(offsetX, 3),
-      offsetY: roundNum(offsetY, 3),
-      rotation_deg: rotationDeg,
-      free_move: freeMove,
-      canvas_px: CANVAS_PX,
-      print_dpi: PRINT_DPI,
-      cut_ratio: CUT_RATIO,
-    },
-
-    quality: { effective_dpi: dpi == null ? null : Math.round(dpi), label: qualityLabelFromDpi(dpi) },
-
-    // legacy
-    cache_version: CACHE_VERSION,
-    ts_iso: nowIso,
-    nick: nick,
-    shape: shape,
-    dpi: dpi == null ? null : Math.round(dpi),
-    url: location.href,
-  };
-
-  return JSON.stringify(payload, null, 2);
-}
-
+/**
+ * uploadToServer:
+ *  - kanałowo-neutralnie autoryzujemy przez token z URL (X-Project-Token)
+ *  - opcjonalnie backend może zwrócić auth.upload_token (X-Upload-Token)
+ */
 async function uploadToServer(blob, jsonText, filename) {
   const fd = new FormData();
 
+  const urlOrderIdRaw = getOrderIdFromUrl();
   const orderId =
     sanitizeOrderId(urlOrderIdRaw) ||
     sanitizeOrderId(nickInput?.value || "");
 
   if (orderId) fd.append("order_id", orderId);
 
-  fd.append("png", blob, filename);
+  fd.append("jpg", blob, filename);
   fd.append("json", jsonText);
 
-  const res = await fetch(UPLOAD_ENDPOINT, {
+  const headers = {};
+  if (productConfig?.token) headers["X-Project-Token"] = productConfig.token;
+  if (productConfig?.auth?.upload_token) headers["X-Upload-Token"] = productConfig.auth.upload_token;
+
+  const uploadUrl = productConfig?.api?.upload_url || `${REPO_BASE}/api/upload.php`;
+
+  const res = await fetch(uploadUrl, {
     method: "POST",
-    headers: { "X-Upload-Token": UPLOAD_TOKEN },
+    headers,
     body: fd,
   });
 
@@ -1532,6 +1719,12 @@ function dpiWarningText(dpi) {
 async function sendToProduction(skipNickCheck = false) {
   if (productionLocked) return;
 
+  // twardy warunek: wysyłka tylko w trybie backend
+  if (productConfig?.mode !== "backend") {
+    toast("Tryb demo: wysyłka zablokowana. Uruchom edytor z ?token=...");
+    return;
+  }
+
   if (!uploadedImg) {
     toast("Najpierw wgraj zdjęcie.");
     return;
@@ -1546,7 +1739,6 @@ async function sendToProduction(skipNickCheck = false) {
   const first = window.confirm("Czy na pewno chcesz wysłać projekt do realizacji?");
   if (!first) return;
 
-  // dodatkowe ostrzeżenie, jeśli kadr odblokowany
   if (freeMove) {
     const ok = window.confirm(
       "Uwaga: kadr jest odblokowany (swobodne przesuwanie/pomniejszanie).\n\n" +
@@ -1598,14 +1790,10 @@ async function sendToProduction(skipNickCheck = false) {
   }
 }
 
-if (btnSendToProduction) {
-  btnSendToProduction.addEventListener("click", () => sendToProduction(false));
-}
-if (nickInput) {
-  nickInput.addEventListener("input", () => markDirty());
-}
+if (btnSendToProduction) btnSendToProduction.addEventListener("click", () => sendToProduction(false));
+if (nickInput) nickInput.addEventListener("input", () => markDirty());
 
-/* ===================== [ERROR OVERLAY BUTTONS] ===================== */
+/* ERROR OVERLAY BUTTONS */
 if (errorOverlayRetry) {
   errorOverlayRetry.addEventListener("click", (e) => {
     e.preventDefault();
@@ -1625,23 +1813,56 @@ if (errorOverlay) {
   });
 }
 
-/* ===================== [START] ===================== */
-(async function init() {
-  initTheme();
-  wireThemeButtons();
+/* ===================== [SEKCJA 14] APPLY productConfig ===================== */
+function applyNickFromUrlIfEmpty() {
+  if (!nickInput) return;
+  const current = (nickInput.value || "").trim();
+  if (current) return;
 
-  updateUiVersionBadge();
-  applyNickFromUrlIfEmpty();
+  const v = (getNickFromUrl() || getOrderIdFromUrl() || "").trim();
+  if (!v) return;
 
-  syncFreeMoveButton();
+  nickInput.value = v;
+}
 
-  await setShape("square", { skipHistory: true });
-  clearTemplateSelection({ skipHistory: true });
+async function applyProductConfig(cfg) {
+  productConfig = cfg;
 
-  refreshExportButtons();
+  // runtime render params
+  CANVAS_PX = cfg.render.canvas_px;
+  CUT_RATIO = cfg.render.cut_ratio;
+  PRINT_DPI = cfg.render.print_dpi;
 
+  // canvas size (przyszłościowo)
+  if (canvas.width !== CANVAS_PX || canvas.height !== CANVAS_PX) {
+    canvas.width = CANVAS_PX;
+    canvas.height = CANVAS_PX;
+  }
+
+  // masks
+  MASK_URLS = { ...MASK_URLS, ...cfg.assets.masks };
+
+  // UI title/subtitle
+  const sizeW = cfg.product.size_mm.w;
+  const sizeH = cfg.product.size_mm.h;
+  const autoSub = cfg.ui.subtitle || `Projekt ${sizeW}×${sizeH} mm (spad).`;
+  setUiTitleSubtitle(cfg.ui.title, autoSub);
+
+  // shapes availability
+  const shapeOptions = (cfg.product.shape_options || ["square", "circle"]).map(String);
+  setShapeButtonsAvailability(shapeOptions);
+
+  // ustaw domyślny shape, ale tylko jeśli dozwolony
+  const desired = String(cfg.product.shape_default || "square");
+  const initialShape = shapeOptions.includes(desired) ? desired : (shapeOptions[0] || "square");
+  await setShape(initialShape, { skipHistory: true });
+
+  // mask od razu
+  applyMaskForShape(shape);
+
+  // refresh templates
   try {
-    const templates = await loadTemplates();
+    const templates = await loadTemplatesFromConfig();
     renderTemplateGrid(templates);
   } catch (err) {
     derr(err);
@@ -1649,12 +1870,49 @@ if (errorOverlay) {
     toast("Nie udało się wczytać szablonów.");
   }
 
+  // wysyłka: tylko backend
+  refreshExportButtons();
+  updateStatusBar();
+}
+
+/* ===================== [START] ===================== */
+(async function init() {
+  initTheme();
+  wireThemeButtons();
+
+  updateUiVersionBadge();
+  applyNickFromUrlIfEmpty();
+  syncFreeMoveButton();
+
+  // minimalny stan startowy zanim przyjdzie config
+  setUiTitleSubtitle("Edytor", "Ładowanie konfiguracji…");
+  refreshExportButtons();
+
+  // 1) spróbuj backend config po tokenie
+  const cfg = await loadConfigFromBackend(TOKEN);
+
+  if (cfg) {
+    await applyProductConfig(cfg);
+    toast("Konfiguracja załadowana ✅");
+  } else {
+    // 2) fallback demo chooser
+    await sleep(50);
+    showProductFallbackChooser();
+
+    // w demo ustawiamy bezpieczny default w UI (żeby edytor nie był “pusty”)
+    const demoCfg = normalizeProductConfig(DEMO_PRESETS[0], { token: "", mode: "demo" });
+    await applyProductConfig(demoCfg);
+    toast("Brak tokena/konfiguracji — tryb demo.");
+  }
+
+  // start: template none, historia, status
+  clearTemplateSelection({ skipHistory: true });
   redraw();
   updateStatusBar();
   pushHistory();
-
   markClean();
-  dlog("Loaded", { CACHE_VERSION, DEBUG });
+
+  dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-10-01 === .*/
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-10-03 === */
