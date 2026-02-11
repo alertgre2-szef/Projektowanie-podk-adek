@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-07b";
+const CACHE_VERSION = "2026-02-11-08";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -136,7 +136,7 @@ function getUrlParamAny(keys) {
   }
   return "";
 }
-function getNickFromUrl() { return getUrlParamAny(["nick", "n", "order", "order_id"]); }
+function getNickFromUrl() { return getUrlParamAny(["nick", "order", "order_id"]); }
 function getOrderIdFromUrl() { return getUrlParamAny(["order_id", "order"]); }
 function getQtyFromUrl() {
   const raw = getUrlParamAny(["qty", "q", "quantity", "count", "n"]);
@@ -151,11 +151,35 @@ const QTY = getQtyFromUrl();
 let currentSlot = 0; // 0..QTY-1
 let slots = []; // wypełniane po init
 
-function slotKeyBase() {
+function slotKeyBaseV1() {
   const t = String(getQueryParam("token") || "no_token");
   const oid = String(getOrderIdFromUrl() || getNickFromUrl() || "no_order");
   return `EDITOR_SLOTS_V1|${t}|${oid}|qty=${QTY}`;
 }
+
+function slotKeyBase() {
+  // V3: izolacja per domena + repo_base, żeby nie mieszać środowisk
+  const t = String(getQueryParam("token") || "no_token");
+  const oid = String(getOrderIdFromUrl() || getNickFromUrl() || "no_order");
+  const scope = `${location.origin}${REPO_BASE}`;
+  return `EDITOR_SLOTS_V3|${scope}|${t}|${oid}|qty=${QTY}`;
+}
+
+function migrateSlotsKeyIfNeeded() {
+  try {
+    const newKey = slotKeyBase();
+    if (localStorage.getItem(newKey)) return;
+
+    const oldKey = slotKeyBaseV1();
+    const raw = localStorage.getItem(oldKey);
+    if (!raw) return;
+
+    // przenieś stary zapis pod nowy klucz (bez utraty danych)
+    localStorage.setItem(newKey, raw);
+    // nie usuwam starego klucza na siłę — bezpieczeństwo > porządek
+  } catch {}
+}
+
 
 function slotUiEls() {
   return {
@@ -2265,6 +2289,7 @@ async function applyProductConfig(cfg) {
     freeMove: false,
   }));
 
+  migrateSlotsKeyIfNeeded();
   const saved = loadSlotsFromLocal();
   if (saved && saved.length === QTY) {
     for (let i = 0; i < QTY; i++) {
