@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-17
+ * VERSION: 2026-02-11-18
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -160,6 +160,9 @@ const QTY = getQtyFromUrl();
 let currentSlot = 0; // 0..QTY-1
 let slots = []; // wypełniane po init
 
+// GLOBAL: blokada interakcji podczas applySlotState (anti-race)
+let isApplyingSlot = false;
+
 function slotKeyBaseV1() {
   const t = String(getQueryParam("token") || "no_token");
   const oid = String(getOrderIdFromUrl() || getNickFromUrl() || "no_order");
@@ -212,8 +215,10 @@ function updateSlotUi() {
   const done = slots.filter(s => !!s.photoDataUrl).length;
   if (els.prog) els.prog.textContent = `Ukończono: ${done} / ${QTY}`;
 
-  if (els.prev) els.prev.disabled = productionLocked || currentSlot <= 0;
-  if (els.next) els.next.disabled = productionLocked || currentSlot >= QTY - 1;
+  const disabledByBusy = productionLocked || isApplyingSlot;
+
+  if (els.prev) els.prev.disabled = disabledByBusy || currentSlot <= 0;
+  if (els.next) els.next.disabled = disabledByBusy || currentSlot >= QTY - 1;
 }
 
 function toast(msg, ms = 10000) {
@@ -292,22 +297,31 @@ async function setSlot(index) {
   const next = Math.max(0, Math.min(QTY - 1, index));
   if (next === currentSlot) return;
 
-  // WAŻNE: anuluj opóźniony wheel-commit, żeby nie zapisał się do innego slota
+  // jeśli trwa apply slotu — ignoruj klik
+  if (isApplyingSlot) return;
+
+  // Blokujemy interakcje i sloty na czas przełączenia
+  isApplyingSlot = true;
+  updateSlotUi();
+
+  // anuluj opóźniony wheel-commit, żeby nie zapisał się do innego slota
   if (wheelTimer) {
     window.clearTimeout(wheelTimer);
     wheelTimer = 0;
   }
 
-  // WAŻNE: zamknij aktywny gest (i nie pozwól mu “przeskoczyć” na nowy slot)
+  // commit gestów (jeśli był) zanim zmienimy slot
   try { commitGestureIfActive(); } catch {}
 
-  // Wymuszone „odklejenie” pointerów przy przełączaniu slota (mobile fix)
+  // "odklejenie" pointerów i stanów drag/pinch (PC i mobile)
   try {
     if (typeof pointers !== "undefined" && pointers && typeof pointers.clear === "function") pointers.clear();
     if (typeof isDragging !== "undefined") isDragging = false;
     if (typeof pinchStartDist !== "undefined") pinchStartDist = 0;
+    if (typeof pinchStartScale !== "undefined") pinchStartScale = userScale;
   } catch {}
 
+  // Zapisz stan bieżącego slota (źródło prawdy)
   persistCurrentSlotState();
   saveSlotsToLocal();
 
@@ -315,10 +329,10 @@ async function setSlot(index) {
 
   const mySeq = ++slotApplySeq;
   await applySlotState(mySeq);
-  updateSlotUi();
 
-  // Historia/undo per-slot: po przełączeniu pokaż właściwe przyciski
-  try { updateUndoRedoButtons(); } catch {}
+  isApplyingSlot = false;
+  updateSlotUi();
+  updateStatusBar();
 }
 
 function wireSlotUi() {
@@ -329,6 +343,7 @@ function wireSlotUi() {
   els.next.addEventListener("click", () => setSlot(currentSlot + 1));
 }
 /* ========END======== [SEKCJA 04] SLOTY (N sztuk) + LOCALSTORAGE =========END======== */
+
 
 
 
@@ -1184,8 +1199,7 @@ function persistCurrentSlotState() {
   s.offsetY = offsetY;
   s.freeMove = freeMove;
 
-  // KLUCZ: NIE kasujemy photoDataUrl automatycznie, bo uploadedImg może być chwilowo null
-  // (np. w trakcie przełączania slota / opóźnionych callbacków).
+  // photoDataUrl nie ruszamy automatycznie
 }
 
 function persistAndSave() {
@@ -1200,12 +1214,29 @@ async function applySlotState(seq = 0) {
 
   if (seq && seq !== slotApplySeq) return;
 
-  // 1) shape
+  // ===== HARD SWITCH: natychmiast ustaw runtime z danych slota =====
+  rotationDeg = normDeg(s.rotationDeg || 0);
+  freeMove = !!s.freeMove;
+  syncFreeMoveButton();
+
+  userScale = Number(s.userScale || 1) || 1;
+  offsetX = Number(s.offsetX || 0) || 0;
+  offsetY = Number(s.offsetY || 0) || 0;
+
+  // usuń obraz runtime na czas doczytania (żeby nie było “starego”)
+  uploadedImg = null;
+  templateEditImg = null; // też nie pokazuj overlay ze starego slota
+
+  redraw();
+  updateStatusBar();
+  refreshExportButtons();
+
+  // ===== 1) shape =====
   if (s.shape) await setShape(String(s.shape), { skipHistory: true });
   if (seq && seq !== slotApplySeq) return;
   if (slotIndex !== currentSlot) return;
 
-  // 2) template
+  // ===== 2) template =====
   if (s.templateId) {
     currentTemplate = { id: s.templateId, name: s.templateId };
     await applyTemplate(currentTemplate, { skipHistory: true, silentErrors: true, slotIndex });
@@ -1215,8 +1246,7 @@ async function applySlotState(seq = 0) {
     clearTemplateSelection({ skipHistory: true });
   }
 
-  // 3) photo
-  uploadedImg = null;
+  // ===== 3) photo =====
   if (s.photoDataUrl) {
     try {
       const img = await loadImageFromDataUrl(s.photoDataUrl);
@@ -1225,12 +1255,13 @@ async function applySlotState(seq = 0) {
       uploadedImg = img;
     } catch {
       uploadedImg = null;
-      // jeśli nie da się wczytać — dopiero wtedy czyścimy dane zdjęcia
       s.photoDataUrl = "";
     }
+  } else {
+    uploadedImg = null;
   }
 
-  // 4) transform (ŹRÓDŁO PRAWDY = slot)
+  // ===== 4) clamp/cover po wczytaniu zdjęcia =====
   rotationDeg = normDeg(s.rotationDeg || 0);
   freeMove = !!s.freeMove;
   syncFreeMoveButton();
@@ -1246,6 +1277,13 @@ async function applySlotState(seq = 0) {
       if (userScale < MIN_USER_SCALE_LOCKED) userScale = MIN_USER_SCALE_LOCKED;
       applyClampToOffsets();
     }
+
+    // utrwal po clamp (legalne wartości)
+    s.rotationDeg = rotationDeg;
+    s.freeMove = freeMove;
+    s.userScale = userScale;
+    s.offsetX = offsetX;
+    s.offsetY = offsetY;
   } else {
     coverScale = 1;
     userScale = 1;
@@ -1254,23 +1292,20 @@ async function applySlotState(seq = 0) {
     rotationDeg = 0;
     freeMove = false;
     syncFreeMoveButton();
-  }
 
-  // po clampach: utrwalamy do slota (żeby nigdy nie “rozlało się” na inne)
-  if (slots[currentSlot]) {
-    slots[currentSlot].rotationDeg = rotationDeg;
-    slots[currentSlot].freeMove = freeMove;
-    slots[currentSlot].userScale = userScale;
-    slots[currentSlot].offsetX = offsetX;
-    slots[currentSlot].offsetY = offsetY;
+    s.rotationDeg = 0;
+    s.freeMove = false;
+    s.userScale = 1;
+    s.offsetX = 0;
+    s.offsetY = 0;
   }
 
   redraw();
   updateStatusBar();
   refreshExportButtons();
+  updateSlotUi();
 
-  // Historia per-slot: zapewnij bazę po załadowaniu stanu slota
-  if (typeof seedHistoryIfEmpty === "function") seedHistoryIfEmpty();
+  saveSlotsToLocal();
 }
 
 let uploadSeq = 0;
@@ -1280,13 +1315,11 @@ if (photoInput) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // PRZYPINAMY upload do slota z momentu wyboru pliku (eliminuje race z przełączaniem slotów)
     const slotAtStart = currentSlot;
     const myUpload = ++uploadSeq;
 
     const reader = new FileReader();
     reader.onload = async () => {
-      // jeśli w międzyczasie zaczęto kolejny upload — ten ignorujemy
       if (myUpload !== uploadSeq) return;
 
       const dataUrl = String(reader.result || "");
@@ -1295,14 +1328,14 @@ if (photoInput) {
         return;
       }
 
-      // ZAPISUJEMY zawsze do właściwego slota (tego z momentu wyboru pliku)
+      // zapis do slota źródłowego od razu
       if (slots[slotAtStart]) slots[slotAtStart].photoDataUrl = dataUrl;
       saveSlotsToLocal();
 
       try {
         const img = await loadImageFromDataUrl(dataUrl);
 
-        // Jeśli użytkownik w międzyczasie zmienił slot — nie ruszamy UI bieżącego slota.
+        // jeśli user zmienił slot w międzyczasie — nie ruszaj UI
         if (slotAtStart !== currentSlot) {
           toast(`Zdjęcie wgrane ✅ (podkładka ${slotAtStart + 1}/${QTY})`);
           if (photoInput) photoInput.value = "";
@@ -1310,13 +1343,12 @@ if (photoInput) {
           return;
         }
 
-        // slot się zgadza — aktualizujemy UI i stan runtime
         uploadedImg = img;
         qualityWarnLevel = 0;
 
         resetPhotoTransformToCover();
 
-        // twarda izolacja: zapisujemy transform do AKTUALNEGO slota natychmiast
+        // twarda izolacja: zapis transform do bieżącego slota
         if (slots[currentSlot]) {
           slots[currentSlot].photoDataUrl = dataUrl;
           slots[currentSlot].rotationDeg = rotationDeg;
@@ -1349,6 +1381,7 @@ if (photoInput) {
   });
 }
 /* ========END======== [SEKCJA 16] ZDJĘCIE (LOAD) + SLOT STATE =========END======== */
+
 
 
 
@@ -1411,6 +1444,9 @@ function _writeTransformToCurrentSlot() {
 function setUserScaleKeepingPoint(newUserScale) {
   if (!uploadedImg) return;
 
+  // BLOKADA: jeśli przełączamy slot, nie zapisuj / nie ruszaj
+  if (isApplyingSlot) return;
+
   newUserScale = clamp(newUserScale, getMinUserScale(), MAX_USER_SCALE);
   userScale = newUserScale;
 
@@ -1427,6 +1463,8 @@ function setUserScaleKeepingPoint(newUserScale) {
 
 function fitToCover() {
   if (!uploadedImg) return;
+  if (isApplyingSlot) return;
+
   ensureCoverScaleForRotation();
   userScale = 1.0;
   offsetX = 0;
@@ -1447,6 +1485,8 @@ function fitToCover() {
 
 function centerPhoto() {
   if (!uploadedImg) return;
+  if (isApplyingSlot) return;
+
   offsetX = 0;
   offsetY = 0;
 
@@ -1473,11 +1513,16 @@ let pinchStartScale = 1;
 let gestureActive = false;
 let gestureMoved = false;
 
-// PRZYPINAMY gest do slota startowego (żeby nie “przeciekał” na inne sloty)
-let gestureSlot = 0;
-
 function commitGestureIfActive() {
   if (!gestureActive) return;
+
+  // jeśli w trakcie była zmiana slota, nie commituj
+  if (isApplyingSlot) {
+    gestureActive = false;
+    gestureMoved = false;
+    return;
+  }
+
   if (gestureMoved) {
     pushHistory();
     markDirty();
@@ -1495,6 +1540,7 @@ function distance(a, b) {
 
 canvas.addEventListener("pointerdown", (e) => {
   if (!uploadedImg) return;
+  if (isApplyingSlot) return;
 
   canvas.setPointerCapture(e.pointerId);
   const p = clientToCanvasPx(e.clientX, e.clientY);
@@ -1503,7 +1549,6 @@ canvas.addEventListener("pointerdown", (e) => {
   if (!gestureActive) {
     gestureActive = true;
     gestureMoved = false;
-    gestureSlot = currentSlot; // <-- slot startu gestu
   }
 
   if (pointers.size === 1) {
@@ -1524,10 +1569,8 @@ canvas.addEventListener("pointerdown", (e) => {
 
 canvas.addEventListener("pointermove", (e) => {
   if (!uploadedImg) return;
+  if (isApplyingSlot) return;
   if (!pointers.has(e.pointerId)) return;
-
-  // jeśli slot zmienił się w trakcie gestu — ignoruj ruchy (to było źródło “zoom dla wszystkich”)
-  if (gestureActive && currentSlot !== gestureSlot) return;
 
   const p = clientToCanvasPx(e.clientX, e.clientY);
   pointers.set(e.pointerId, { x: p.x, y: p.y });
@@ -1580,8 +1623,7 @@ function endPointer(e) {
     isDragging = false;
 
     if (gestureActive) {
-      // jeśli slot się zmienił w trakcie gestu — nie commituj nic
-      if (currentSlot === gestureSlot && gestureMoved) {
+      if (!isApplyingSlot && gestureMoved) {
         pushHistory();
         markDirty();
         saveSlotsToLocal();
@@ -1602,9 +1644,7 @@ canvas.addEventListener(
   "wheel",
   (e) => {
     if (!uploadedImg) return;
-
-    // wheel też przypinamy do slota bieżącego
-    gestureSlot = currentSlot;
+    if (isApplyingSlot) return;
 
     const zoom = e.deltaY < 0 ? 1.08 : 1 / 1.08;
     setUserScaleKeepingPoint(userScale * zoom);
@@ -1621,7 +1661,9 @@ function wheelHistoryCommit() {
 
   if (wheelTimer) window.clearTimeout(wheelTimer);
   wheelTimer = window.setTimeout(() => {
-    // jeśli w międzyczasie zmieniono slot — nie zapisuj (to jest “przeciekanie”)
+    if (isApplyingSlot) { wheelTimer = 0; return; }
+
+    // jeśli w międzyczasie zmieniono slot — nie zapisuj
     if (currentSlot !== wheelCommitSlot) {
       wheelTimer = 0;
       return;
@@ -1640,6 +1682,8 @@ if (btnCenter) btnCenter.addEventListener("click", centerPhoto);
 if (btnZoomIn) {
   btnZoomIn.addEventListener("click", () => {
     if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
+    if (isApplyingSlot) return;
+
     setUserScaleKeepingPoint(userScale * 1.12);
     pushHistory();
     markDirty();
@@ -1649,6 +1693,7 @@ if (btnZoomIn) {
 if (btnZoomOut) {
   btnZoomOut.addEventListener("click", () => {
     if (!uploadedImg) return toast("Najpierw wgraj zdjęcie.");
+    if (isApplyingSlot) return;
 
     if (!freeMove && userScale <= MIN_USER_SCALE_LOCKED + 1e-6) {
       toast("Aby bardziej pomniejszyć, odblokuj 🔓 Kadr.");
@@ -1662,6 +1707,7 @@ if (btnZoomOut) {
   });
 }
 /* ========END======== [SEKCJA 18] DRAG + ZOOM (GESTY) =========END======== */
+
 
 
 
@@ -2733,4 +2779,4 @@ async function applyProductConfig(cfg) {
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-17 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-18 === */
