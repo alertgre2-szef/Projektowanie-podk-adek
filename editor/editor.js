@@ -3,10 +3,10 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-05
+ * VERSION: 2026-02-11-06
  */
 
-/* ===================== [SEKCJA 1] UTIL + DEBUG ===================== */
+/* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
 const REPO_BASE = (() => {
   const p = location.pathname;
   const i = p.indexOf("/editor/");
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-05";
+const CACHE_VERSION = "2026-02-11-06";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -75,8 +75,10 @@ function getQueryParam(name) {
   } catch { return ""; }
 }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+/* =========END========= [SEKCJA 01] UTIL + DEBUG ========END========= */
 
-/* ===================== [THEME] ===================== */
+
+/* ========START======== [SEKCJA 02] THEME =========START======== */
 const THEME_KEY = "EDITOR_THEME";
 function systemPrefersDark() {
   try { return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches; }
@@ -117,8 +119,10 @@ function wireThemeButtons() {
   if (bL) bL.addEventListener("click", () => applyTheme("light", { persist: true }));
   if (bD) bD.addEventListener("click", () => applyTheme("dark", { persist: true }));
 }
+/* =========END========= [SEKCJA 02] THEME ========END========= */
 
-/* ===================== [SEKCJA 1B] URL PARAMS (NICK/ORDER/QTY) ===================== */
+
+/* ========START======== [SEKCJA 03] URL PARAMS (NICK/ORDER/QTY) =========START======== */
 function _parseHashParams() {
   const h = (location.hash || "").replace(/^#/, "").trim();
   if (!h) return new URLSearchParams();
@@ -145,8 +149,10 @@ function getQtyFromUrl() {
   const i = Math.floor(n);
   return Math.max(1, Math.min(99, i));
 }
+/* =========END========= [SEKCJA 03] URL PARAMS (NICK/ORDER/QTY) ========END========= */
 
-/* ===================== [SLOTY: N sztuk] ===================== */
+
+/* ========START======== [SEKCJA 04] SLOTY (N sztuk) =========START======== */
 const QTY = getQtyFromUrl();
 let currentSlot = 0; // 0..QTY-1
 let slots = []; // wypełniane po init
@@ -225,6 +231,7 @@ function saveSlotsToLocal() {
   try {
     const key = slotKeyBase();
     const snapshot = slots.map((s) => ({
+      // UWAGA: photoDataUrl = ORYGINALNE zdjęcie (DataURL), NIE zrzut canvasa.
       photoDataUrl: s.photoDataUrl || "",
       shape: s.shape || "square",
       templateId: s.templateId || "",
@@ -272,8 +279,10 @@ function wireSlotUi() {
   els.prev.addEventListener("click", () => setSlot(currentSlot - 1));
   els.next.addEventListener("click", () => setSlot(currentSlot + 1));
 }
+/* =========END========= [SEKCJA 04] SLOTY (N sztuk) ========END========= */
 
-/* ===================== [SEKCJA 1C] DOM SELF-TEST ===================== */
+
+/* ========START======== [SEKCJA 05] DOM SELF-TEST =========START======== */
 const REQUIRED_IDS = [
   "canvas",
   "preview",
@@ -305,8 +314,10 @@ function checkRequiredDom() {
   }
   return report;
 }
+/* =========END========= [SEKCJA 05] DOM SELF-TEST ========END========= */
 
-/* ===================== [SEKCJA 2] DOM ===================== */
+
+/* ========START======== [SEKCJA 06] DOM =========START======== */
 const domReport = checkRequiredDom();
 if (!domReport.ok) throw new Error("Missing required DOM elements: " + domReport.missing.join(", "));
 
@@ -369,15 +380,19 @@ const productSelect = document.getElementById("productSelect");
 const btnApplyProductSelect = document.getElementById("btnApplyProductSelect");
 
 canvas.style.touchAction = "none";
+/* =========END========= [SEKCJA 06] DOM ========END========= */
 
-/* ===================== [SEKCJA 2A] WERSJA W UI ===================== */
+
+/* ========START======== [SEKCJA 07] WERSJA W UI =========START======== */
 function updateUiVersionBadge() {
   const el = document.getElementById("appVersion");
   if (!el) return;
   el.textContent = " • v" + CACHE_VERSION;
 }
+/* =========END========= [SEKCJA 07] WERSJA W UI ========END========= */
 
-/* ===================== [SEKCJA 3] productConfig ===================== */
+
+/* ========START======== [SEKCJA 08] productConfig =========START======== */
 const TOKEN = getQueryParam("token");
 
 function setUiTitleSubtitle(title, subtitle) {
@@ -546,8 +561,10 @@ function showProductFallbackChooser() {
 
   setUiTitleSubtitle("Edytor (tryb demo)", "Wybierz produkt, aby kontynuować bez tokena.");
 }
+/* =========END========= [SEKCJA 08] productConfig ========END========= */
 
-/* ===================== [SEKCJA 4] RUNTIME PARAMS ===================== */
+
+/* ========START======== [SEKCJA 09] RUNTIME PARAMS =========START======== */
 let CANVAS_PX = 1181;
 let CUT_RATIO = 0.90;
 let PRINT_DPI = 300;
@@ -597,8 +614,10 @@ function applyMaskForShape(nextShape) {
   el.style.display = "block";
   el.src = withV(raw);
 }
+/* =========END========= [SEKCJA 09] RUNTIME PARAMS ========END========= */
 
-/* ===================== [SEKCJA 5] STAN (bieżący slot) ===================== */
+
+/* ========START======== [SEKCJA 10] STAN (bieżący slot) =========START======== */
 let productConfig = null;
 
 let shape = "square";
@@ -645,8 +664,10 @@ window.addEventListener("beforeunload", (e) => {
   e.preventDefault();
   e.returnValue = "";
 });
+/* =========END========= [SEKCJA 10] STAN (bieżący slot) ========END========= */
 
-/* ===================== [STATUS BAR + JAKOŚĆ] ===================== */
+
+/* ========START======== [SEKCJA 11] STATUS BAR + JAKOŚĆ =========START======== */
 function fmtZoomPct() { return `${Math.round(userScale * 100)}%`; }
 function templateName() {
   if (!currentTemplate) return "—";
@@ -723,8 +744,10 @@ function updateStatusBar() {
 
   applyStatusBarQualityStyle(dpi);
 }
+/* =========END========= [SEKCJA 11] STATUS BAR + JAKOŚĆ ========END========= */
 
-/* ===================== [EXPORT ENABLED STATE] ===================== */
+
+/* ========START======== [SEKCJA 12] EXPORT ENABLED STATE =========START======== */
 function refreshExportButtons() {
   const hasPhoto = !!uploadedImg;
   if (btnDownloadPreview) btnDownloadPreview.disabled = !hasPhoto || productionLocked;
@@ -744,8 +767,10 @@ function refreshExportButtons() {
 
   updateSlotUi();
 }
+/* =========END========= [SEKCJA 12] EXPORT ENABLED STATE ========END========= */
 
-/* ===================== [KŁÓDKA KADRU] ===================== */
+
+/* ========START======== [SEKCJA 13] KŁÓDKA KADRU =========START======== */
 function syncFreeMoveButton() {
   if (!btnFreeMove) return;
   btnFreeMove.classList.toggle("active", freeMove === true);
@@ -786,8 +811,10 @@ function setFreeMove(next, { silent = false, skipHistory = false } = {}) {
   saveSlotsToLocal();
 }
 if (btnFreeMove) btnFreeMove.addEventListener("click", () => setFreeMove(!freeMove));
+/* =========END========= [SEKCJA 13] KŁÓDKA KADRU ========END========= */
 
-/* ===================== [HISTORIA] (5 kroków) ===================== */
+
+/* ========START======== [SEKCJA 14] HISTORIA (5 kroków) =========START======== */
 const HISTORY_MAX = 5;
 let history = [];
 let historyIndex = -1;
@@ -890,8 +917,10 @@ async function redo() {
 }
 if (btnUndo) btnUndo.addEventListener("click", undo);
 if (btnRedo) btnRedo.addEventListener("click", redo);
+/* =========END========= [SEKCJA 14] HISTORIA (5 kroków) ========END========= */
 
-/* ===================== [KSZTAŁT] ===================== */
+
+/* ========START======== [SEKCJA 15] KSZTAŁT =========START======== */
 function setShapeButtonsAvailability(options) {
   const hasSquare = options.includes("square");
   const hasCircle = options.includes("circle");
@@ -919,8 +948,10 @@ async function setShape(next, opts = {}) {
 }
 if (btnSquare) btnSquare.addEventListener("click", () => setShape("square"));
 if (btnCircle) btnCircle.addEventListener("click", () => setShape("circle"));
+/* =========END========= [SEKCJA 15] KSZTAŁT ========END========= */
 
-/* ===================== [RYSOWANIE] ===================== */
+
+/* ========START======== [SEKCJA 16] RYSOWANIE =========START======== */
 function clear() {
   ctx.clearRect(0, 0, CANVAS_PX, CANVAS_PX);
   ctx.fillStyle = "#ffffff";
@@ -1006,8 +1037,10 @@ function redraw() {
   if (uploadedImg) drawPhotoTransformed(uploadedImg);
   drawTemplateEditOverlay();
 }
+/* =========END========= [SEKCJA 16] RYSOWANIE ========END========= */
 
-/* ===================== [WCZYTANIE ZDJĘCIA] ===================== */
+
+/* ========START======== [SEKCJA 17] FOTO + SLOT STATE (NAPRAWA MIX) =========START======== */
 function resetPhotoTransformToCover() {
   if (!uploadedImg) return;
 
@@ -1034,6 +1067,11 @@ function loadImageFromDataUrl(dataUrl) {
   });
 }
 
+/**
+ * UWAGA (ważne):
+ * slot.photoDataUrl przechowuje ORYGINALNE zdjęcie klienta.
+ * NIE zapisujemy canvasa do slotu, bo to mieszało projekty (zrzut zawierał już przeliczenia/overlay).
+ */
 function persistCurrentSlotState() {
   if (!slots[currentSlot]) return;
 
@@ -1048,11 +1086,7 @@ function persistCurrentSlotState() {
   s.offsetY = offsetY;
   s.freeMove = freeMove;
 
-  if (uploadedImg) {
-    s.photoDataUrl = canvas.toDataURL("image/jpeg", 0.92);
-  } else {
-    s.photoDataUrl = "";
-  }
+  // photoDataUrl zostaje nietknięte (oryginał).
 }
 
 async function applySlotState() {
@@ -1110,42 +1144,66 @@ async function applySlotState() {
   refreshExportButtons();
 }
 
-if (photoInput) {
-  photoInput.addEventListener("change", (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-
-    img.onload = () => {
-      uploadedImg = img;
-      qualityWarnLevel = 0;
-
-      resetPhotoTransformToCover();
-      redraw();
-      updateStatusBar();
-      pushHistory();
-
-      refreshExportButtons();
-
-      toast(`Zdjęcie wgrane ✅ (sztuka ${currentSlot + 1}/${QTY})`);
-      maybeWarnQuality(true);
-
-      markDirty();
-
-      persistCurrentSlotState();
-      saveSlotsToLocal();
-
-      URL.revokeObjectURL(url);
-      if (photoInput) photoInput.value = "";
-    };
-
-    img.src = url;
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ""));
+    r.onerror = () => reject(new Error("Nie mogę odczytać pliku"));
+    r.readAsDataURL(file);
   });
 }
 
-/* ===================== [OBRÓT] ===================== */
+if (photoInput) {
+  photoInput.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+
+      const img = new Image();
+      img.onload = () => {
+        uploadedImg = img;
+        qualityWarnLevel = 0;
+
+        // zapisujemy ORYGINAŁ do slotu
+        if (slots[currentSlot]) slots[currentSlot].photoDataUrl = dataUrl;
+
+        resetPhotoTransformToCover();
+        redraw();
+        updateStatusBar();
+        pushHistory();
+
+        refreshExportButtons();
+
+        toast(`Zdjęcie wgrane ✅ (sztuka ${currentSlot + 1}/${QTY})`);
+        maybeWarnQuality(true);
+
+        markDirty();
+
+        persistCurrentSlotState();
+        saveSlotsToLocal();
+
+        if (photoInput) photoInput.value = "";
+      };
+
+      img.onerror = () => {
+        toast("Nie mogę wczytać zdjęcia.");
+        if (photoInput) photoInput.value = "";
+      };
+
+      img.src = dataUrl;
+    } catch (err) {
+      derr(err);
+      toast("Nie mogę wczytać pliku.");
+      if (photoInput) photoInput.value = "";
+    }
+  });
+}
+/* =========END========= [SEKCJA 17] FOTO + SLOT STATE (NAPRAWA MIX) ========END========= */
+
+
+/* ========START======== [SEKCJA 18] OBRÓT =========START======== */
 function setRotation(nextDeg, opts = {}) {
   if (!uploadedImg) { toast("Najpierw wgraj zdjęcie."); return; }
 
@@ -1167,8 +1225,10 @@ function rotateBy(deltaDeg) {
 if (btnRotateLeft) btnRotateLeft.addEventListener("click", () => rotateBy(-30));
 if (btnRotateRight) btnRotateRight.addEventListener("click", () => rotateBy(+30));
 if (btnRotateReset) btnRotateReset.addEventListener("click", () => setRotation(0));
+/* =========END========= [SEKCJA 18] OBRÓT ========END========= */
 
-/* ===================== [DRAG + ZOOM] ===================== */
+
+/* ========START======== [SEKCJA 19] DRAG + ZOOM =========START======== */
 function clientToCanvasPx(clientX, clientY) {
   const r = canvas.getBoundingClientRect();
   const scale = CANVAS_PX / r.width;
@@ -1387,8 +1447,10 @@ if (btnZoomOut) {
     markDirty();
   });
 }
+/* =========END========= [SEKCJA 19] DRAG + ZOOM ========END========= */
 
-/* ===================== [SZABLONY] ===================== */
+
+/* ========START======== [SEKCJA 20] SZABLONY =========START======== */
 async function fetchJsonFirstOk(urls) {
   let lastErr = null;
   for (const u of urls) {
@@ -1502,8 +1564,10 @@ function clearTemplateSelection(opts = {}) {
   persistCurrentSlotState();
   saveSlotsToLocal();
 }
+/* =========END========= [SEKCJA 20] SZABLONY ========END========= */
 
-/* ===================== [EXPORT / NAZWY] ===================== */
+
+/* ========START======== [SEKCJA 21] EXPORT / NAZWY =========START======== */
 function safeFileToken(raw, fallback = "projekt") {
   let s = String(raw || "").trim();
   if (!s) return fallback;
@@ -1536,8 +1600,10 @@ if (btnDownloadPreview) {
     toast("Zapisano PODGLĄD JPG ✅");
   });
 }
+/* =========END========= [SEKCJA 21] EXPORT / NAZWY ========END========= */
 
-/* ===================== [OVERLAYS + LOCK UI] ===================== */
+
+/* ========START======== [SEKCJA 22] OVERLAYS + LOCK UI =========START======== */
 function setBusyOverlay(visible, msg) {
   if (!busyOverlay) return;
   busyOverlay.style.display = visible ? "flex" : "none";
@@ -1621,8 +1687,10 @@ function closeErrorOverlay() {
   document.documentElement.style.overflow = "";
   document.body.style.overflow = "";
 }
+/* =========END========= [SEKCJA 22] OVERLAYS + LOCK UI ========END========= */
 
-/* ===================== [WYSYŁKA] ===================== */
+
+/* ========START======== [SEKCJA 23] WYSYŁKA: JSON + RENDER + UPLOAD =========START======== */
 const PROJECT_JSON_SCHEMA_VERSION = 2;
 
 function roundNum(x, digits = 6) {
@@ -1690,18 +1758,20 @@ function buildProjectJson({ slotIndex, slotTotal, baseOrderId }) {
   }, null, 2);
 }
 
-/** Białe pole + czarny nick (w spadzie) — tylko na PRINT */
+/** Białe pole + nick (w spadzie) — tylko na PRINT */
 function drawNickLabelOnPrint() {
   const nick = (nickInput?.value || "").trim();
   if (!nick) return;
 
-  // 6pt @ PRINT_DPI => ok. 25px
+  // 6pt @ PRINT_DPI => ok. 25px przy 300 DPI
   const fontPx = Math.max(12, Math.round((PRINT_DPI * 6) / 72));
-  const pad = Math.max(4, Math.round(fontPx * 0.35));
 
-  // małe pole w lewym górnym rogu, w obszarze spadu
-  const x = Math.round(CANVAS_PX * 0.01);
-  const y = Math.round(CANVAS_PX * 0.01);
+  // ciaśniej niż wcześniej (mniej “zabiera”)
+  const pad = Math.max(2, Math.round(fontPx * 0.15));
+
+  // bliżej rogu
+  const x = 2;
+  const y = 2;
 
   ctx.save();
   ctx.font = `${fontPx}px Arial, sans-serif`;
@@ -1709,6 +1779,7 @@ function drawNickLabelOnPrint() {
 
   const text = nick.length > 32 ? (nick.slice(0, 32) + "…") : nick;
   const tw = Math.ceil(ctx.measureText(text).width);
+
   const boxW = Math.min(CANVAS_PX - x - 1, tw + pad * 2);
   const boxH = fontPx + pad * 2;
 
@@ -1780,9 +1851,9 @@ function renderProductionJpgBlob() {
   return renderProductionWithPrintOverlayToBlob("image/jpeg", 1.0);
 }
 
-/** Arkusz 2×N (dynamicznie) z slotów; limit bezpieczeństwa, żeby nie robić gigantycznych canvasów */
+/** Arkusz 2×N (dynamicznie) z slotów */
 async function renderSheetFromSlotBlobsJpg(slotBlobs, cols, rows) {
-  const maxRowsSafe = 10; // 2×10 => 20 szt. (wystarczy na praktykę, bez ryzyka pamięci)
+  const maxRowsSafe = 10;
   if (rows > maxRowsSafe) throw new Error("Zbyt duży arkusz (za dużo wierszy)");
 
   const sheetCanvas = document.createElement("canvas");
@@ -1820,7 +1891,6 @@ async function renderSheetFromSlotBlobsJpg(slotBlobs, cols, rows) {
       sctx.drawImage(bm, x, y, CANVAS_PX, CANVAS_PX);
       if (bm.close) try { bm.close(); } catch {}
     } else {
-      // puste pole
       sctx.fillStyle = "#ffffff";
       sctx.fillRect(x, y, CANVAS_PX, CANVAS_PX);
     }
@@ -1863,8 +1933,10 @@ async function uploadToServer(blob, jsonText, filename, orderIdForUpload, fileBa
   if (data && data.ok === false) throw new Error(data.error || "Upload nieudany");
   return data || { ok: true };
 }
+/* =========END========= [SEKCJA 23] WYSYŁKA: JSON + RENDER + UPLOAD ========END========= */
 
-/* ===================== [MODAL NICK] ===================== */
+
+/* ========START======== [SEKCJA 24] MODAL NICK =========START======== */
 let pendingSendAfterNick = false;
 let lastFocusElBeforeModal = null;
 
@@ -1977,8 +2049,10 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 });
+/* =========END========= [SEKCJA 24] MODAL NICK ========END========= */
 
-/* ===================== [SEND] ===================== */
+
+/* ========START======== [SEKCJA 25] SEND FLOW (BRAKI ZDJĘĆ + UPLOAD LOOP) =========START======== */
 function dpiWarningText(dpi) {
   if (dpi == null) return null;
 
@@ -2067,7 +2141,6 @@ async function sendToProduction(skipNickCheck = false) {
 
     const nickBase = sanitizeFileBase(nick || baseOrderId || "projekt");
 
-    // 1) wysyłamy sloty jako osobne pliki nick_01.jpg, nick_02.jpg, ...
     const slotPrintBlobs = [];
 
     for (let i = 0; i < QTY; i++) {
@@ -2098,7 +2171,6 @@ async function sendToProduction(skipNickCheck = false) {
       );
     }
 
-    // 2) dodatkowo arkusz 2×N (dla ułatwienia druku)
     if (QTY > 1) {
       const cols = 2;
       const rows = Math.ceil(QTY / 2);
@@ -2127,7 +2199,6 @@ async function sendToProduction(skipNickCheck = false) {
           sheetBase
         );
       } catch (e) {
-        // Arkusz jest dodatkiem — nie blokujemy produkcji jeśli nie wyjdzie.
         derr(e);
         toast("Uwaga: nie udało się wygenerować arkusza (dodatkowego) — sloty wysłane poprawnie.");
       }
@@ -2179,8 +2250,10 @@ if (errorOverlay) {
     if (e.target === errorOverlay) closeErrorOverlay();
   });
 }
+/* =========END========= [SEKCJA 25] SEND FLOW (BRAKI ZDJĘĆ + UPLOAD LOOP) ========END========= */
 
-/* ===================== [APPLY productConfig] ===================== */
+
+/* ========START======== [SEKCJA 26] APPLY productConfig =========START======== */
 function applyNickFromUrlIfEmpty() {
   if (!nickInput) return;
   const current = (nickInput.value || "").trim();
@@ -2233,8 +2306,10 @@ async function applyProductConfig(cfg) {
   refreshExportButtons();
   updateStatusBar();
 }
+/* =========END========= [SEKCJA 26] APPLY productConfig ========END========= */
 
-/* ===================== [START] ===================== */
+
+/* ========START======== [SEKCJA 27] INIT =========START======== */
 (async function init() {
   initTheme();
   wireThemeButtons();
@@ -2304,5 +2379,7 @@ async function applyProductConfig(cfg) {
 
   dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, QTY });
 })();
+/* =========END========= [SEKCJA 27] INIT ========END========= */
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-05 === */
+
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-06 === */
