@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-15
+ * VERSION: 2026-02-11-16
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-15";
+const CACHE_VERSION = "2026-02-11-16";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -855,17 +855,26 @@ function setFreeMove(next, { silent = false, skipHistory = false } = {}) {
     applyClampToOffsets();
   }
 
+  // twarda izolacja: zapisujemy do bieżącego slota natychmiast
+  if (slots[currentSlot]) {
+    slots[currentSlot].freeMove = freeMove;
+    slots[currentSlot].userScale = userScale;
+    slots[currentSlot].offsetX = offsetX;
+    slots[currentSlot].offsetY = offsetY;
+    slots[currentSlot].rotationDeg = rotationDeg;
+  }
+
   redraw();
   updateStatusBar();
 
   if (!skipHistory) pushHistory();
   if (!skipHistory) markDirty();
 
-  persistCurrentSlotState();
   saveSlotsToLocal();
 }
 if (btnFreeMove) btnFreeMove.addEventListener("click", () => setFreeMove(!freeMove));
 /* ========END======== [SEKCJA 12] KADR (FREE MOVE) =========END======== */
+
 
 
 /* ========START======== [SEKCJA 13] HISTORIA (UNDO/REDO) =========START======== */
@@ -1212,7 +1221,7 @@ async function applySlotState(seq = 0) {
     }
   }
 
-  // 4) transform
+  // 4) transform (ŹRÓDŁO PRAWDY = slot)
   rotationDeg = normDeg(s.rotationDeg || 0);
   freeMove = !!s.freeMove;
   syncFreeMoveButton();
@@ -1238,12 +1247,21 @@ async function applySlotState(seq = 0) {
     syncFreeMoveButton();
   }
 
+  // po clampach: utrwalamy do slota (żeby nigdy nie “rozlało się” na inne)
+  if (slots[currentSlot]) {
+    slots[currentSlot].rotationDeg = rotationDeg;
+    slots[currentSlot].freeMove = freeMove;
+    slots[currentSlot].userScale = userScale;
+    slots[currentSlot].offsetX = offsetX;
+    slots[currentSlot].offsetY = offsetY;
+  }
+
   redraw();
   updateStatusBar();
   refreshExportButtons();
 
-  // Historia per-slot: zapewnij bazę po załadowaniu stanu slota (bez “przeciekania” między slotami)
-  seedHistoryIfEmpty();
+  // Historia per-slot: zapewnij bazę po załadowaniu stanu slota
+  if (typeof seedHistoryIfEmpty === "function") seedHistoryIfEmpty();
 }
 
 let uploadSeq = 0;
@@ -1279,6 +1297,7 @@ if (photoInput) {
         if (slotAtStart !== currentSlot) {
           toast(`Zdjęcie wgrane ✅ (podkładka ${slotAtStart + 1}/${QTY})`);
           if (photoInput) photoInput.value = "";
+          updateSlotUi();
           return;
         }
 
@@ -1287,17 +1306,29 @@ if (photoInput) {
         qualityWarnLevel = 0;
 
         resetPhotoTransformToCover();
+
+        // twarda izolacja: zapisujemy transform do AKTUALNEGO slota natychmiast
+        if (slots[currentSlot]) {
+          slots[currentSlot].photoDataUrl = dataUrl;
+          slots[currentSlot].rotationDeg = rotationDeg;
+          slots[currentSlot].userScale = userScale;
+          slots[currentSlot].offsetX = offsetX;
+          slots[currentSlot].offsetY = offsetY;
+          slots[currentSlot].freeMove = freeMove;
+        }
+
         redraw();
         updateStatusBar();
         pushHistory();
 
         refreshExportButtons();
+        updateSlotUi();
 
         toast(`Zdjęcie wgrane ✅ (sztuka ${currentSlot + 1}/${QTY})`);
         maybeWarnQuality(true);
 
         markDirty();
-        persistAndSave();
+        saveSlotsToLocal();
 
         if (photoInput) photoInput.value = "";
       } catch (err) {
@@ -1309,6 +1340,7 @@ if (photoInput) {
   });
 }
 /* ========END======== [SEKCJA 16] ZDJĘCIE (LOAD) + SLOT STATE =========END======== */
+
 
 
 
@@ -1324,10 +1356,19 @@ function setRotation(nextDeg, opts = {}) {
   updateStatusBar();
   maybeWarnQuality(false);
 
+  // twarda izolacja: zapis do bieżącego slota natychmiast
+  if (slots[currentSlot]) {
+    slots[currentSlot].rotationDeg = rotationDeg;
+    slots[currentSlot].userScale = userScale;
+    slots[currentSlot].offsetX = offsetX;
+    slots[currentSlot].offsetY = offsetY;
+    slots[currentSlot].freeMove = freeMove;
+  }
+
   if (!opts.skipHistory) pushHistory();
   if (!opts.skipHistory) markDirty();
 
-  persistAndSave();
+  saveSlotsToLocal();
 }
 function rotateBy(deltaDeg) {
   setRotation(rotationDeg + deltaDeg);
@@ -1339,6 +1380,7 @@ if (btnRotateReset) btnRotateReset.addEventListener("click", () => setRotation(0
 /* ========END======== [SEKCJA 17] OBRÓT =========END======== */
 
 
+
 /* ========START======== [SEKCJA 18] DRAG + ZOOM (GESTY) =========START======== */
 function clientToCanvasPx(clientX, clientY) {
   const r = canvas.getBoundingClientRect();
@@ -1348,6 +1390,15 @@ function clientToCanvasPx(clientX, clientY) {
   return { x, y };
 }
 
+function _writeTransformToCurrentSlot() {
+  if (!slots[currentSlot]) return;
+  slots[currentSlot].rotationDeg = rotationDeg;
+  slots[currentSlot].userScale = userScale;
+  slots[currentSlot].offsetX = offsetX;
+  slots[currentSlot].offsetY = offsetY;
+  slots[currentSlot].freeMove = freeMove;
+}
+
 function setUserScaleKeepingPoint(newUserScale) {
   if (!uploadedImg) return;
 
@@ -1355,12 +1406,14 @@ function setUserScaleKeepingPoint(newUserScale) {
   userScale = newUserScale;
 
   applyClampToOffsets();
+  _writeTransformToCurrentSlot();
+
   redraw();
   updateStatusBar();
   maybeWarnQuality(false);
 
   markDirty();
-  persistAndSave();
+  saveSlotsToLocal();
 }
 
 function fitToCover() {
@@ -1371,6 +1424,7 @@ function fitToCover() {
   offsetY = 0;
 
   if (!freeMove) applyClampToOffsets();
+  _writeTransformToCurrentSlot();
 
   redraw();
   updateStatusBar();
@@ -1379,7 +1433,7 @@ function fitToCover() {
   maybeWarnQuality(false);
   markDirty();
 
-  persistAndSave();
+  saveSlotsToLocal();
 }
 
 function centerPhoto() {
@@ -1388,6 +1442,7 @@ function centerPhoto() {
   offsetY = 0;
 
   if (!freeMove) applyClampToOffsets();
+  _writeTransformToCurrentSlot();
 
   redraw();
   updateStatusBar();
@@ -1395,7 +1450,7 @@ function centerPhoto() {
   toast("Wyśrodkowano");
   markDirty();
 
-  persistAndSave();
+  saveSlotsToLocal();
 }
 
 let isDragging = false;
@@ -1414,7 +1469,7 @@ function commitGestureIfActive() {
   if (gestureMoved) {
     pushHistory();
     markDirty();
-    persistAndSave();
+    saveSlotsToLocal();
   }
   gestureActive = false;
   gestureMoved = false;
@@ -1488,6 +1543,8 @@ canvas.addEventListener("pointermove", (e) => {
     dragLastY = p.y;
 
     applyClampToOffsets();
+    _writeTransformToCurrentSlot();
+
     redraw();
     updateStatusBar();
     e.preventDefault();
@@ -1510,7 +1567,7 @@ function endPointer(e) {
       if (gestureMoved) {
         pushHistory();
         markDirty();
-        persistAndSave();
+        saveSlotsToLocal();
       }
       gestureActive = false;
       gestureMoved = false;
@@ -1552,7 +1609,7 @@ function wheelHistoryCommit() {
 
     pushHistory();
     markDirty();
-    persistAndSave();
+    saveSlotsToLocal();
     wheelTimer = 0;
   }, 180);
 }
@@ -1566,7 +1623,7 @@ if (btnZoomIn) {
     setUserScaleKeepingPoint(userScale * 1.12);
     pushHistory();
     markDirty();
-    persistAndSave();
+    saveSlotsToLocal();
   });
 }
 if (btnZoomOut) {
@@ -1581,7 +1638,7 @@ if (btnZoomOut) {
     setUserScaleKeepingPoint(userScale / 1.12);
     pushHistory();
     markDirty();
-    persistAndSave();
+    saveSlotsToLocal();
   });
 }
 /* ========END======== [SEKCJA 18] DRAG + ZOOM (GESTY) =========END======== */
@@ -1924,8 +1981,9 @@ function drawNickLabelOnPrint() {
   const fontPx = Math.max(12, Math.round((PRINT_DPI * 6) / 72));
   const pad = Math.max(2, Math.round(fontPx * 0.22));
 
-  const x = 2 + pad;
-  const y = 2 + pad;
+  // 0px od krawędzi (maksymalnie blisko)
+  const x = 0;
+  const y = 0;
 
   ctx.save();
   ctx.font = `bold ${fontPx}px Arial, sans-serif`;
@@ -1943,7 +2001,7 @@ function drawNickLabelOnPrint() {
   // biała obwódka (grubsza)
   ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.30));
   ctx.strokeStyle = "#ffffff";
-  ctx.strokeText(text, x, y);
+  ctx.strokeText(text, x + pad, y + pad);
 
   // wyłącz cień dla wypełnienia (czystsza czerwień)
   ctx.shadowColor = "transparent";
@@ -1951,7 +2009,7 @@ function drawNickLabelOnPrint() {
 
   // czerwony fill
   ctx.fillStyle = "#d00000";
-  ctx.fillText(text, x, y);
+  ctx.fillText(text, x + pad, y + pad);
 
   ctx.restore();
 }
@@ -2097,6 +2155,7 @@ async function uploadToServer(blob, jsonText, filename, orderIdForUpload, fileBa
   return data || { ok: true };
 }
 /* ========END======== [SEKCJA 22] UPLOAD + PROJECT JSON + RENDER PRINT =========END======== */
+
 
 
 
@@ -2653,4 +2712,4 @@ async function applyProductConfig(cfg) {
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-14 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-16 === */
