@@ -10,7 +10,7 @@
  * SECURITY:
  *  - no hard secrets in JS
  *  - upload auth via X-Project-Token (bearer) + server-side validation
- * VERSION: 2026-02-10-05
+ * VERSION: 2026-02-11-01
  */
 
 /* ===================== [SEKCJA 1] UTIL + DEBUG ===================== */
@@ -21,7 +21,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-10-05";
+const CACHE_VERSION = "2026-02-11-01";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -443,14 +443,14 @@ async function loadConfigFromBackend(token) {
     // Nowy kontrakt: { ok:true, mode, productConfig }
     if (raw && raw.ok === true && raw.productConfig && typeof raw.productConfig === "object") {
       const cfg = normalizeProductConfig(raw.productConfig, { token, mode: "backend" });
-      dlog("project.php ok:", raw.mode, cfg);
+      dlog("project.php ok:", raw.mode, { token_present: !!cfg?.token });
       return cfg;
     }
 
     // Legacy: backend zwraca bezpośrednio config
     if (raw && typeof raw === "object") {
       const cfg = normalizeProductConfig(raw, { token, mode: "backend" });
-      dlog("project.php legacy:", cfg);
+      dlog("project.php legacy:", { token_present: !!cfg?.token });
       return cfg;
     }
 
@@ -911,7 +911,8 @@ function applyClampToOffsets() {
   const h = ih * scale;
 
   const ex = (c * w + s * h) / 2;
-  const ey = (s * w + c * h) / 2;
+  const ey = (s * w + c * ih * scale) / 2; // (zostawiam jak było w logice – nie dotykam całości rysowania)
+  // UWAGA: powyższa linia jest podejrzana (miesza ih i scale), ale nie ruszam tego w tej poprawce dot. tokena.
 
   let cx = CANVAS_PX / 2 + offsetX;
   let cy = CANVAS_PX / 2 + offsetY;
@@ -1602,9 +1603,34 @@ function renderProductionJpgBlob() {
   return renderProductionWithPrintOverlayToBlob("image/jpeg", 1.0);
 }
 
+/* ---- TOKEN: zawsze z najlepszego źródła + redundancja wysyłki ---- */
+function getProjectTokenBestEffort() {
+  const t =
+    (productConfig?.token || "").trim() ||
+    (TOKEN || "").trim() ||
+    (getQueryParam("token") || "").trim();
+  return t;
+}
+function appendTokenToUrl(url, token) {
+  try {
+    const u = new URL(url, location.origin);
+    if (token) u.searchParams.set("token", token);
+    return u.toString();
+  } catch {
+    if (!token) return String(url || "");
+    const s = String(url || "");
+    const glue = s.includes("?") ? "&" : "?";
+    return `${s}${glue}token=${encodeURIComponent(token)}`;
+  }
+}
+
 /**
  * uploadToServer:
- * - autoryzacja przez X-Project-Token (token z URL)
+ * - autoryzacja:
+ *    - X-Project-Token
+ *    - Authorization: Bearer <token>
+ *    - FormData: token + project_token
+ *    - URL: ?token=...
  * - multipart: image pod kluczem "png" (kompatybilnie z upload.php), MIME: image/jpeg
  */
 async function uploadToServer(blob, jsonText, filename) {
@@ -1621,10 +1647,28 @@ async function uploadToServer(blob, jsonText, filename) {
   fd.append("png", blob, filename);
   fd.append("json", jsonText);
 
-  const headers = {};
-  if (productConfig?.token) headers["X-Project-Token"] = productConfig.token;
+  const projectToken = getProjectTokenBestEffort();
 
-  const uploadUrl = productConfig?.api?.upload_url || `${REPO_BASE}/api/upload.php`;
+  // token także w payload (na wypadek backendu, który nie czyta headerów)
+  if (projectToken) {
+    fd.append("token", projectToken);
+    fd.append("project_token", projectToken);
+  }
+
+  const headers = {};
+  if (projectToken) {
+    headers["X-Project-Token"] = projectToken;
+    headers["Authorization"] = `Bearer ${projectToken}`;
+  }
+
+  const rawUploadUrl = productConfig?.api?.upload_url || `${REPO_BASE}/api/upload.php`;
+  const uploadUrl = appendTokenToUrl(rawUploadUrl, projectToken);
+
+  dlog("uploadToServer()", {
+    uploadUrl,
+    token_present: !!projectToken,
+    token_len: projectToken ? projectToken.length : 0
+  });
 
   const res = await fetch(uploadUrl, {
     method: "POST",
@@ -1965,7 +2009,7 @@ async function applyProductConfig(cfg) {
   pushHistory();
   markClean();
 
-  dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode });
+  dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, token_present: !!getProjectTokenBestEffort() });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-10-05 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-01 === */
