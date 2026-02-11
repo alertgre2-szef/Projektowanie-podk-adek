@@ -3,10 +3,10 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-09
+ * VERSION: 2026-02-11-11
  */
 
-/* ===================== [SEKCJA 1] UTIL + DEBUG ===================== */
+/* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
 const REPO_BASE = (() => {
   const p = location.pathname;
   const i = p.indexOf("/editor/");
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-09";
+const CACHE_VERSION = "2026-02-11-11";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -75,8 +75,10 @@ function getQueryParam(name) {
   } catch { return ""; }
 }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+/* ========END======== [SEKCJA 01] UTIL + DEBUG =========END======== */
 
-/* ===================== [THEME] ===================== */
+
+/* ========START======== [SEKCJA 02] THEME =========START======== */
 const THEME_KEY = "EDITOR_THEME";
 function systemPrefersDark() {
   try { return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches; }
@@ -117,8 +119,10 @@ function wireThemeButtons() {
   if (bL) bL.addEventListener("click", () => applyTheme("light", { persist: true }));
   if (bD) bD.addEventListener("click", () => applyTheme("dark", { persist: true }));
 }
+/* ========END======== [SEKCJA 02] THEME =========END======== */
 
-/* ===================== [SEKCJA 1B] URL PARAMS (NICK/ORDER/QTY) ===================== */
+
+/* ========START======== [SEKCJA 03] URL PARAMS (NICK/ORDER/QTY) =========START======== */
 function _parseHashParams() {
   const h = (location.hash || "").replace(/^#/, "").trim();
   if (!h) return new URLSearchParams();
@@ -145,8 +149,10 @@ function getQtyFromUrl() {
   const i = Math.floor(n);
   return Math.max(1, Math.min(99, i));
 }
+/* ========END======== [SEKCJA 03] URL PARAMS (NICK/ORDER/QTY) =========END======== */
 
-/* ===================== [SLOTY: N sztuk] ===================== */
+
+/* ========START======== [SEKCJA 04] SLOTY (N sztuk) + LOCALSTORAGE =========START======== */
 const QTY = getQtyFromUrl();
 let currentSlot = 0; // 0..QTY-1
 let slots = []; // wypełniane po init
@@ -174,12 +180,9 @@ function migrateSlotsKeyIfNeeded() {
     const raw = localStorage.getItem(oldKey);
     if (!raw) return;
 
-    // przenieś stary zapis pod nowy klucz (bez utraty danych)
     localStorage.setItem(newKey, raw);
-    // nie usuwam starego klucza na siłę — bezpieczeństwo > porządek
   } catch {}
 }
-
 
 function slotUiEls() {
   return {
@@ -276,11 +279,12 @@ function loadSlotsFromLocal() {
   }
 }
 
+let slotApplySeq = 0;
+
 async function setSlot(index) {
   const next = Math.max(0, Math.min(QTY - 1, index));
   if (next === currentSlot) return;
 
-  // domknij ewentualny pinch/drag zanim zapiszemy
   commitGestureIfActive();
 
   persistCurrentSlotState();
@@ -288,13 +292,10 @@ async function setSlot(index) {
 
   currentSlot = next;
 
-  // sekwencja chroniąca przed "dokończeniem" starego applySlotState po zmianie slotu
   const mySeq = ++slotApplySeq;
-
   await applySlotState(mySeq);
   updateSlotUi();
 }
-
 
 function wireSlotUi() {
   const els = slotUiEls();
@@ -303,8 +304,10 @@ function wireSlotUi() {
   els.prev.addEventListener("click", () => setSlot(currentSlot - 1));
   els.next.addEventListener("click", () => setSlot(currentSlot + 1));
 }
+/* ========END======== [SEKCJA 04] SLOTY (N sztuk) + LOCALSTORAGE =========END======== */
 
-/* ===================== [SEKCJA 1C] DOM SELF-TEST ===================== */
+
+/* ========START======== [SEKCJA 05] DOM SELF-TEST + DOM QUERY =========START======== */
 const REQUIRED_IDS = [
   "canvas",
   "preview",
@@ -337,7 +340,6 @@ function checkRequiredDom() {
   return report;
 }
 
-/* ===================== [SEKCJA 2] DOM ===================== */
 const domReport = checkRequiredDom();
 if (!domReport.ok) throw new Error("Missing required DOM elements: " + domReport.missing.join(", "));
 
@@ -394,21 +396,25 @@ const nickModalCancel = document.getElementById("nickModalCancel");
 const nickModalSave = document.getElementById("nickModalSave");
 const nickModalHint = document.getElementById("nickModalHint");
 
-// fallback product selector
+// fallback/manual product selector
 const productSelectCard = document.getElementById("productSelectCard");
 const productSelect = document.getElementById("productSelect");
 const btnApplyProductSelect = document.getElementById("btnApplyProductSelect");
 
 canvas.style.touchAction = "none";
+/* ========END======== [SEKCJA 05] DOM SELF-TEST + DOM QUERY =========END======== */
 
-/* ===================== [SEKCJA 2A] WERSJA W UI ===================== */
+
+/* ========START======== [SEKCJA 06] WERSJA W UI =========START======== */
 function updateUiVersionBadge() {
   const el = document.getElementById("appVersion");
   if (!el) return;
   el.textContent = " • v" + CACHE_VERSION;
 }
+/* ========END======== [SEKCJA 06] WERSJA W UI =========END======== */
 
-/* ===================== [SEKCJA 3] productConfig ===================== */
+
+/* ========START======== [SEKCJA 07] BACKEND CONFIG (project.php) =========START======== */
 const TOKEN = getQueryParam("token");
 
 function setUiTitleSubtitle(title, subtitle) {
@@ -431,6 +437,11 @@ async function fetchJsonWithTimeout(url, { timeoutMs = 6500 } = {}) {
   }
 }
 
+/**
+ * mode:
+ * - "backend"  => konfiguracja z tokena (project.php)
+ * - "manual"   => pełny tryb ręczny (bez tokena / gdy backend niedostępny)
+ */
 function normalizeProductConfig(raw, { token, mode }) {
   const schema_version = 1;
 
@@ -514,8 +525,7 @@ async function loadConfigFromBackend(token) {
     const raw = await fetchJsonWithTimeout(projectUrl, { timeoutMs: 6500 });
 
     if (raw && raw.ok === true && raw.productConfig && typeof raw.productConfig === "object") {
-      const mode = raw.mode === "production" ? "backend" : "demo";
-      const cfg = normalizeProductConfig(raw.productConfig, { token, mode });
+      const cfg = normalizeProductConfig(raw.productConfig, { token, mode: "backend" });
       dlog("project.php ok:", raw.mode, cfg);
       return cfg;
     }
@@ -532,53 +542,68 @@ async function loadConfigFromBackend(token) {
     return null;
   }
 }
+/* ========END======== [SEKCJA 07] BACKEND CONFIG (project.php) =========END======== */
 
-const DEMO_PRESETS = [
+
+/* ========START======== [SEKCJA 08] FALLBACK = PEŁNY TRYB RĘCZNY =========START======== */
+const MANUAL_PRESETS = [
   {
     id: "coaster_square_100_r5",
     ui: { title: "Edytor podkładki", subtitle: "Projekt 10×10 cm (spad)." },
     product: { type: "coaster", name: "Podkładka 10×10", size_mm: { w: 100, h: 100 }, corner_radius_mm: 5, shape_default: "square", shape_options: ["square", "circle"] },
     render: { canvas_px: 1181, cut_ratio: 0.90, print_dpi: 300 },
+    api: { upload_url: `${REPO_BASE}/api/upload.php` },
   },
   {
     id: "coaster_circle_100",
     ui: { title: "Edytor podkładki", subtitle: "Projekt 10 cm (okrąg, spad)." },
     product: { type: "coaster", name: "Podkładka 10 cm", size_mm: { w: 100, h: 100 }, corner_radius_mm: 0, shape_default: "circle", shape_options: ["circle", "square"] },
     render: { canvas_px: 1181, cut_ratio: 0.90, print_dpi: 300 },
+    api: { upload_url: `${REPO_BASE}/api/upload.php` },
   },
 ];
 
-function showProductFallbackChooser() {
+let manualChooserWired = false;
+
+function showProductManualChooser() {
   if (!productSelectCard || !productSelect || !btnApplyProductSelect) {
-    toast("Brak konfiguracji — uruchom edytor z ?token=... (backend).");
+    toast("Brak konfiguracji z backendu — tryb ręczny (ustawienia domyślne).");
     return;
   }
 
   productSelectCard.style.display = "block";
-  productSelect.innerHTML = `<option value="">— wybierz —</option>` +
-    DEMO_PRESETS.map(p => `<option value="${p.id}">${p.ui.title} — ${p.ui.subtitle}</option>`).join("");
+  productSelect.innerHTML =
+    `<option value="">— wybierz —</option>` +
+    MANUAL_PRESETS.map(p => `<option value="${p.id}">${p.ui.title} — ${p.ui.subtitle}</option>`).join("");
 
   btnApplyProductSelect.disabled = true;
 
-  productSelect.addEventListener("change", () => {
-    btnApplyProductSelect.disabled = !productSelect.value;
-  });
+  if (!manualChooserWired) {
+    manualChooserWired = true;
 
-  btnApplyProductSelect.addEventListener("click", async () => {
-    const id = productSelect.value;
-    const preset = DEMO_PRESETS.find(p => p.id === id);
-    if (!preset) return;
+    productSelect.addEventListener("change", () => {
+      btnApplyProductSelect.disabled = !productSelect.value;
+    });
 
-    const cfg = normalizeProductConfig(preset, { token: "", mode: "demo" });
-    await applyProductConfig(cfg);
-    toast("Tryb demo uruchomiony (bez wysyłki).");
-    productSelectCard.style.display = "none";
-  });
+    btnApplyProductSelect.addEventListener("click", async () => {
+      const id = productSelect.value;
+      const preset = MANUAL_PRESETS.find(p => p.id === id);
+      if (!preset) return;
 
-  setUiTitleSubtitle("Edytor (tryb demo)", "Wybierz produkt, aby kontynuować bez tokena.");
+      const cfg = normalizeProductConfig(preset, { token: "", mode: "manual" });
+      await applyProductConfig(cfg);
+
+      productSelectCard.style.display = "none";
+      toast("Ustawienia produktu zastosowane (tryb ręczny).");
+    });
+  }
+
+  setUiTitleSubtitle("Edytor", "Wybierz produkt (tryb ręczny).");
 }
+/* ========END======== [SEKCJA 08] FALLBACK = PEŁNY TRYB RĘCZNY =========END======== */
 
-/* ===================== [SEKCJA 4] RUNTIME PARAMS ===================== */
+
+/* ========START======== [SEKCJA 09] RUNTIME PARAMS + MASKI =========START======== */
 let CANVAS_PX = 1181;
 let CUT_RATIO = 0.90;
 let PRINT_DPI = 300;
@@ -628,8 +653,10 @@ function applyMaskForShape(nextShape) {
   el.style.display = "block";
   el.src = withV(raw);
 }
+/* ========END======== [SEKCJA 09] RUNTIME PARAMS + MASKI =========END======== */
 
-/* ===================== [SEKCJA 5] STAN (bieżący slot) ===================== */
+
+/* ========START======== [SEKCJA 10] STAN + DIRTY + STATUS BAR =========START======== */
 let productConfig = null;
 
 let shape = "square";
@@ -658,7 +685,6 @@ const MIN_USER_SCALE_FREE = 0.10;
 const MAX_USER_SCALE = 6.0;
 function getMinUserScale() { return freeMove ? MIN_USER_SCALE_FREE : MIN_USER_SCALE_LOCKED; }
 
-/* ===================== [DIRTY STATE] ===================== */
 let isDirty = false;
 let productionLocked = false;
 
@@ -677,7 +703,6 @@ window.addEventListener("beforeunload", (e) => {
   e.returnValue = "";
 });
 
-/* ===================== [STATUS BAR + JAKOŚĆ] ===================== */
 function fmtZoomPct() { return `${Math.round(userScale * 100)}%`; }
 function templateName() {
   if (!currentTemplate) return "—";
@@ -748,42 +773,48 @@ function updateStatusBar() {
   const mmH = productConfig?.product?.size_mm?.h ?? 0;
 
   const slotInfo = QTY > 1 ? ` | Sztuka: ${currentSlot + 1}/${QTY}` : "";
+  const modeStr = productConfig?.mode === "backend" ? "backend" : "ręczny";
 
   statusBar.textContent =
-    `Produkt: ${prod} ${mmW}×${mmH}mm | Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | Obrót: ${rot} | Kadr: ${lockStr} | DPI: ${dpiStr} | Jakość: ${q}${slotInfo}`;
+    `Tryb: ${modeStr} | Produkt: ${prod} ${mmW}×${mmH}mm | Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | Obrót: ${rot} | Kadr: ${lockStr} | DPI: ${dpiStr} | Jakość: ${q}${slotInfo}`;
 
   applyStatusBarQualityStyle(dpi);
 }
+/* ========END======== [SEKCJA 10] STAN + DIRTY + STATUS BAR =========END======== */
 
-/* ===================== [EXPORT ENABLED STATE] ===================== */
+
+/* ========START======== [SEKCJA 11] EXPORT BUTTONS (WYSYŁKA ZAWSZE AKTYWNA) =========START======== */
 function refreshExportButtons() {
   const hasPhoto = !!uploadedImg;
+
   if (btnDownloadPreview) btnDownloadPreview.disabled = !hasPhoto || productionLocked;
 
-  const canSend = productConfig?.mode === "backend";
-  if (btnSendToProduction) btnSendToProduction.disabled = productionLocked || !canSend;
+  // WYSYŁKA ZAWSZE AKTYWNA (backend + ręczny fallback)
+  if (btnSendToProduction) btnSendToProduction.disabled = productionLocked;
 
   if (productionHint) {
-    if (!canSend) {
-      productionHint.innerHTML =
-        `Tryb demo: <b>wysyłka zablokowana</b>. Uruchom edytor z <code>?token=...</code>, aby wysyłać do realizacji.`;
-    } else {
-      productionHint.innerHTML =
-        `Po wysłaniu projekt trafia do produkcji i <b>nie będzie można wprowadzić zmian</b>.`;
-    }
+    const uploadUrl = productConfig?.api?.upload_url || `${REPO_BASE}/api/upload.php`;
+    const modeStr = productConfig?.mode === "backend" ? "Konfiguracja z backendu (token)" : "Tryb ręczny (bez tokena)";
+    productionHint.innerHTML =
+      `${modeStr}. ` +
+      `Wysyłka: <b>aktywna</b> → <code>${uploadUrl}</code><br>` +
+      `Po wysłaniu projekt trafia do produkcji i <b>nie będzie można wprowadzić zmian</b>.`;
   }
 
   updateSlotUi();
 }
+/* ========END======== [SEKCJA 11] EXPORT BUTTONS (WYSYŁKA ZAWSZE AKTYWNA) =========END======== */
 
-/* ===================== [KŁÓDKA KADRU] ===================== */
+
+/* ========START======== [SEKCJA 12] KADR (FREE MOVE) =========START======== */
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
 function syncFreeMoveButton() {
   if (!btnFreeMove) return;
   btnFreeMove.classList.toggle("active", freeMove === true);
   btnFreeMove.setAttribute("aria-pressed", freeMove ? "true" : "false");
   btnFreeMove.textContent = freeMove ? "🔓 Kadr" : "🔒 Kadr";
 }
-function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
 function setFreeMove(next, { silent = false, skipHistory = false } = {}) {
   const n = !!next;
@@ -817,8 +848,10 @@ function setFreeMove(next, { silent = false, skipHistory = false } = {}) {
   saveSlotsToLocal();
 }
 if (btnFreeMove) btnFreeMove.addEventListener("click", () => setFreeMove(!freeMove));
+/* ========END======== [SEKCJA 12] KADR (FREE MOVE) =========END======== */
 
-/* ===================== [HISTORIA] (5 kroków) ===================== */
+
+/* ========START======== [SEKCJA 13] HISTORIA (UNDO/REDO) =========START======== */
 const HISTORY_MAX = 5;
 let history = [];
 let historyIndex = -1;
@@ -921,8 +954,10 @@ async function redo() {
 }
 if (btnUndo) btnUndo.addEventListener("click", undo);
 if (btnRedo) btnRedo.addEventListener("click", redo);
+/* ========END======== [SEKCJA 13] HISTORIA (UNDO/REDO) =========END======== */
 
-/* ===================== [KSZTAŁT] ===================== */
+
+/* ========START======== [SEKCJA 14] KSZTAŁT =========START======== */
 function setShapeButtonsAvailability(options) {
   const hasSquare = options.includes("square");
   const hasCircle = options.includes("circle");
@@ -950,8 +985,10 @@ async function setShape(next, opts = {}) {
 }
 if (btnSquare) btnSquare.addEventListener("click", () => setShape("square"));
 if (btnCircle) btnCircle.addEventListener("click", () => setShape("circle"));
+/* ========END======== [SEKCJA 14] KSZTAŁT =========END======== */
 
-/* ===================== [RYSOWANIE] ===================== */
+
+/* ========START======== [SEKCJA 15] RYSOWANIE =========START======== */
 function clear() {
   ctx.clearRect(0, 0, CANVAS_PX, CANVAS_PX);
   ctx.fillStyle = "#ffffff";
@@ -1037,8 +1074,10 @@ function redraw() {
   if (uploadedImg) drawPhotoTransformed(uploadedImg);
   drawTemplateEditOverlay();
 }
+/* ========END======== [SEKCJA 15] RYSOWANIE =========END======== */
 
-/* ===================== [WCZYTANIE ZDJĘCIA] ===================== */
+
+/* ========START======== [SEKCJA 16] ZDJĘCIE (LOAD) + SLOT STATE =========START======== */
 function resetPhotoTransformToCover() {
   if (!uploadedImg) return;
 
@@ -1073,7 +1112,7 @@ function persistCurrentSlotState() {
   s.shape = shape;
   s.templateId = currentTemplate ? String(currentTemplate.id || "") : "";
   s.rotationDeg = rotationDeg;
-  // coverScale: NIE zapisujemy (wartość pochodna, wyliczana z obrazu + obrotu)
+  // coverScale: NIE zapisujemy (pochodna)
   s.userScale = userScale;
   s.offsetX = offsetX;
   s.offsetY = offsetY;
@@ -1088,21 +1127,17 @@ async function applySlotState(seq = 0) {
   const s = slots[slotIndex];
   if (!s) return;
 
-  // jeśli ktoś uruchomił nowsze przełączenie slotu, przerwij
   if (seq && seq !== slotApplySeq) return;
-
 
   if (s.shape) await setShape(String(s.shape), { skipHistory: true });
   if (seq && seq !== slotApplySeq) return;
-if (slotIndex !== currentSlot) return;
-
+  if (slotIndex !== currentSlot) return;
 
   if (s.templateId) {
     currentTemplate = { id: s.templateId, name: s.templateId };
     await applyTemplate(currentTemplate, { skipHistory: true, silentErrors: true });
     if (seq && seq !== slotApplySeq) return;
-if (slotIndex !== currentSlot) return;
-
+    if (slotIndex !== currentSlot) return;
   } else {
     clearTemplateSelection({ skipHistory: true });
   }
@@ -1111,10 +1146,9 @@ if (slotIndex !== currentSlot) return;
   if (s.photoDataUrl) {
     try {
       const img = await loadImageFromDataUrl(s.photoDataUrl);
-if (seq && seq !== slotApplySeq) return;
-if (slotIndex !== currentSlot) return;
-uploadedImg = img;
-
+      if (seq && seq !== slotApplySeq) return;
+      if (slotIndex !== currentSlot) return;
+      uploadedImg = img;
     } catch {
       uploadedImg = null;
       s.photoDataUrl = "";
@@ -1126,7 +1160,7 @@ uploadedImg = img;
   syncFreeMoveButton();
 
   if (uploadedImg) {
-    ensureCoverScaleForRotation(); // zawsze od nowa!
+    ensureCoverScaleForRotation();
 
     userScale = Number(s.userScale || 1) || 1;
     offsetX = Number(s.offsetX || 0) || 0;
@@ -1169,7 +1203,6 @@ if (photoInput) {
         uploadedImg = img;
         qualityWarnLevel = 0;
 
-        // zapisujemy ORYGINAŁ do slotu (to klucz do stabilności)
         if (slots[currentSlot]) slots[currentSlot].photoDataUrl = dataUrl;
 
         resetPhotoTransformToCover();
@@ -1196,8 +1229,10 @@ if (photoInput) {
     reader.readAsDataURL(file);
   });
 }
+/* ========END======== [SEKCJA 16] ZDJĘCIE (LOAD) + SLOT STATE =========END======== */
 
-/* ===================== [OBRÓT] ===================== */
+
+/* ========START======== [SEKCJA 17] OBRÓT =========START======== */
 function setRotation(nextDeg, opts = {}) {
   if (!uploadedImg) { toast("Najpierw wgraj zdjęcie."); return; }
 
@@ -1219,8 +1254,10 @@ function rotateBy(deltaDeg) {
 if (btnRotateLeft) btnRotateLeft.addEventListener("click", () => rotateBy(-30));
 if (btnRotateRight) btnRotateRight.addEventListener("click", () => rotateBy(+30));
 if (btnRotateReset) btnRotateReset.addEventListener("click", () => setRotation(0));
+/* ========END======== [SEKCJA 17] OBRÓT =========END======== */
 
-/* ===================== [DRAG + ZOOM] ===================== */
+
+/* ========START======== [SEKCJA 18] DRAG + ZOOM (GESTY) =========START======== */
 function clientToCanvasPx(clientX, clientY) {
   const r = canvas.getBoundingClientRect();
   const scale = CANVAS_PX / r.width;
@@ -1287,8 +1324,6 @@ let pinchStartScale = 1;
 let gestureActive = false;
 let gestureMoved = false;
 
-let slotApplySeq = 0;
-
 function commitGestureIfActive() {
   if (!gestureActive) return;
   if (gestureMoved) {
@@ -1298,7 +1333,6 @@ function commitGestureIfActive() {
   gestureActive = false;
   gestureMoved = false;
 }
-
 
 function distance(a, b) {
   const dx = a.x - b.x;
@@ -1452,8 +1486,10 @@ if (btnZoomOut) {
     markDirty();
   });
 }
+/* ========END======== [SEKCJA 18] DRAG + ZOOM (GESTY) =========END======== */
 
-/* ===================== [SZABLONY] ===================== */
+
+/* ========START======== [SEKCJA 19] SZABLONY =========START======== */
 async function fetchJsonFirstOk(urls) {
   let lastErr = null;
   for (const u of urls) {
@@ -1567,8 +1603,10 @@ function clearTemplateSelection(opts = {}) {
   persistCurrentSlotState();
   saveSlotsToLocal();
 }
+/* ========END======== [SEKCJA 19] SZABLONY =========END======== */
 
-/* ===================== [EXPORT / NAZWY] ===================== */
+
+/* ========START======== [SEKCJA 20] EXPORT (NAZWY + PREVIEW JPG) =========START======== */
 function safeFileToken(raw, fallback = "projekt") {
   let s = String(raw || "").trim();
   if (!s) return fallback;
@@ -1601,8 +1639,10 @@ if (btnDownloadPreview) {
     toast("Zapisano PODGLĄD JPG ✅");
   });
 }
+/* ========END======== [SEKCJA 20] EXPORT (NAZWY + PREVIEW JPG) =========END======== */
 
-/* ===================== [OVERLAYS + LOCK UI] ===================== */
+
+/* ========START======== [SEKCJA 21] OVERLAYS + LOCK UI =========START======== */
 function setBusyOverlay(visible, msg) {
   if (!busyOverlay) return;
   busyOverlay.style.display = visible ? "flex" : "none";
@@ -1622,6 +1662,8 @@ function setUiLocked(locked, busyMsg = "Trwa operacja…") {
     "btnDownloadPreview",
     "btnSendToProduction",
     "btnSlotPrev", "btnSlotNext",
+    "btnApplyProductSelect",
+    "productSelect",
   ];
 
   ids.forEach((id) => {
@@ -1686,8 +1728,10 @@ function closeErrorOverlay() {
   document.documentElement.style.overflow = "";
   document.body.style.overflow = "";
 }
+/* ========END======== [SEKCJA 21] OVERLAYS + LOCK UI =========END======== */
 
-/* ===================== [WYSYŁKA] ===================== */
+
+/* ========START======== [SEKCJA 22] UPLOAD + PROJECT JSON + RENDER PRINT =========START======== */
 const PROJECT_JSON_SCHEMA_VERSION = 2;
 
 function roundNum(x, digits = 6) {
@@ -1760,11 +1804,9 @@ function drawNickLabelOnPrint() {
   const nick = (nickInput?.value || "").trim();
   if (!nick) return;
 
-  // 6pt @ PRINT_DPI => ok. 25px
   const fontPx = Math.max(12, Math.round((PRINT_DPI * 6) / 72));
   const pad = Math.max(2, Math.round(fontPx * 0.22));
 
-  // maksymalnie do lewego/górnego rogu (spad)
   const x = 2;
   const y = 2;
 
@@ -1845,9 +1887,8 @@ function renderProductionJpgBlob() {
   return renderProductionWithPrintOverlayToBlob("image/jpeg", 1.0);
 }
 
-/** Arkusz 2×N (dynamicznie) z slotów; limit bezpieczeństwa, żeby nie robić gigantycznych canvasów */
 async function renderSheetFromSlotBlobsJpg(slotBlobs, cols, rows) {
-  const maxRowsSafe = 10; // 2×10 => 20 szt. (wystarczy na praktykę, bez ryzyka pamięci)
+  const maxRowsSafe = 10;
   if (rows > maxRowsSafe) throw new Error("Zbyt duży arkusz (za dużo wierszy)");
 
   const sheetCanvas = document.createElement("canvas");
@@ -1927,8 +1968,10 @@ async function uploadToServer(blob, jsonText, filename, orderIdForUpload, fileBa
   if (data && data.ok === false) throw new Error(data.error || "Upload nieudany");
   return data || { ok: true };
 }
+/* ========END======== [SEKCJA 22] UPLOAD + PROJECT JSON + RENDER PRINT =========END======== */
 
-/* ===================== [MODAL NICK] ===================== */
+
+/* ========START======== [SEKCJA 23] MODAL NICK =========START======== */
 let pendingSendAfterNick = false;
 let lastFocusElBeforeModal = null;
 
@@ -2041,8 +2084,10 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 });
+/* ========END======== [SEKCJA 23] MODAL NICK =========END======== */
 
-/* ========START======== [SEKCJA SEND] WYSYŁKA KOMPLETU + ARKUSZ ========START======== */
+
+/* ========START======== [SEKCJA 24] SEND (KOMPLET + ARKUSZ) =========START======== */
 function dpiWarningText(dpi) {
   if (dpi == null) return null;
 
@@ -2094,11 +2139,6 @@ async function ensureAllSlotsHavePhotosOrConfirm() {
 async function sendToProduction(skipNickCheck = false) {
   if (productionLocked) return;
 
-  if (productConfig?.mode !== "backend") {
-    toast("Tryb demo: wysyłka zablokowana. Uruchom edytor z ?token=...");
-    return;
-  }
-
   const nick = (nickInput?.value || "").trim();
   if (!skipNickCheck && !nick) {
     openNickModal();
@@ -2131,10 +2171,9 @@ async function sendToProduction(skipNickCheck = false) {
 
     const nickBase = sanitizeFileBase(nick || baseOrderId || "projekt");
 
-    // KLUCZ: jeden wspólny order_id dla wszystkich uploadów => jeden katalog na serwerze
+    // jeden wspólny order_id dla wszystkich uploadów => jeden katalog na serwerze
     const commonOrderIdForUpload = baseOrderId || nickBase || "projekt";
 
-    // 1) sloty: nick_01.jpg, nick_02.jpg, ...
     const slotPrintBlobs = [];
 
     for (let i = 0; i < QTY; i++) {
@@ -2162,7 +2201,6 @@ async function sendToProduction(skipNickCheck = false) {
       );
     }
 
-    // 2) arkusz 2×N: trafia do TEGO SAMEGO katalogu (ten sam order_id)
     if (QTY > 1) {
       const cols = 2;
       const rows = Math.ceil(QTY / 2);
@@ -2247,9 +2285,10 @@ if (errorOverlay) {
     if (e.target === errorOverlay) closeErrorOverlay();
   });
 }
-/* =========END========= [SEKCJA SEND] WYSYŁKA KOMPLETU + ARKUSZ =========END========= */
+/* ========END======== [SEKCJA 24] SEND (KOMPLET + ARKUSZ) =========END======== */
 
-/* ===================== [APPLY productConfig] ===================== */
+
+/* ========START======== [SEKCJA 25] APPLY productConfig =========START======== */
 function applyNickFromUrlIfEmpty() {
   if (!nickInput) return;
   const current = (nickInput.value || "").trim();
@@ -2302,8 +2341,10 @@ async function applyProductConfig(cfg) {
   refreshExportButtons();
   updateStatusBar();
 }
+/* ========END======== [SEKCJA 25] APPLY productConfig =========END======== */
 
-/* ===================== [START] ===================== */
+
+/* ========START======== [SEKCJA 26] INIT =========START======== */
 (async function init() {
   initTheme();
   wireThemeButtons();
@@ -2354,12 +2395,12 @@ async function applyProductConfig(cfg) {
     await applyProductConfig(cfg);
     toast("Konfiguracja załadowana ✅");
   } else {
-    await sleep(50);
-    showProductFallbackChooser();
+    showProductManualChooser();
 
-    const demoCfg = normalizeProductConfig(DEMO_PRESETS[0], { token: "", mode: "demo" });
-    await applyProductConfig(demoCfg);
-    toast("Brak tokena/konfiguracji — tryb demo.");
+    const manualCfg = normalizeProductConfig(MANUAL_PRESETS[0], { token: "", mode: "manual" });
+    await applyProductConfig(manualCfg);
+
+    toast("Backend/token niedostępny — uruchomiono tryb ręczny.");
   }
 
   currentSlot = 0;
@@ -2372,5 +2413,6 @@ async function applyProductConfig(cfg) {
 
   dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, QTY });
 })();
+/* ========END======== [SEKCJA 26] INIT =========END======== */
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-09 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-11 === */
