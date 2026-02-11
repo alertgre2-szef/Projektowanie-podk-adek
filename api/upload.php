@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /**
  * api/upload.php
- * FILE_VERSION: 2026-02-11-03
+ * FILE_VERSION: 2026-02-11-05
  *
  * Autoryzacja (kanałowo-neutralna):
  *  - preferowane: X-Project-Token
@@ -14,10 +14,11 @@ declare(strict_types=1);
  * Wejście:
  *  - obraz: pole "jpg" lub "png" (kompatybilność)
  *  - json: pole POST "json" lub plik "json_file"
- *  - order_id: POST "order_id" (opcjonalnie)
+ *  - order_id: POST "order_id" (opcjonalnie)  -> dla katalogu
+ *  - file_base: POST "file_base" (opcjonalnie) -> nazwa pliku (bez rozszerzenia), np. "nick_01"
  *
  * Zapis:
- *  uploads/<order_id|no_order>/{id}.{jpg|png} + {id}.json
+ *  uploads/<base_order_id|no_order>/{file_base_or_generated}.{jpg|png} + {same}.json
  *
  * Wyjście:
  *  { ok:true, id, image_url, json_url, request_id, server_ts }
@@ -84,7 +85,7 @@ function log_line(string $line): void {
 }
 
 function fail(int $code, string $error_code, string $error_message, array $extra = []): void {
-  global $REQUEST_ID, $AUTH_CONTEXT, $ORDER_ID_CLEAN, $ORDER_DIR_NAME;
+  global $REQUEST_ID, $AUTH_CONTEXT, $ORDER_ID_CLEAN, $ORDER_DIR_NAME, $FILE_BASE_CLEAN;
 
   $payload = array_merge([
     'ok' => false,
@@ -98,9 +99,10 @@ function fail(int $code, string $error_code, string $error_message, array $extra
   $tokenMasked = mask_token((string)($AUTH_CONTEXT['project_token'] ?? ''));
   $orderMasked = (string)($ORDER_ID_CLEAN ?? '');
   $dirName = (string)($ORDER_DIR_NAME ?? '');
+  $fileBase = (string)($FILE_BASE_CLEAN ?? '');
 
   log_line(sprintf(
-    '[%s] request_id=%s ip=%s status=%d ok=0 code=%s order_id=%s dir=%s token=%s msg=%s',
+    '[%s] request_id=%s ip=%s status=%d ok=0 code=%s order_id=%s dir=%s file_base=%s token=%s msg=%s',
     now_iso(),
     $REQUEST_ID,
     $ip,
@@ -108,6 +110,7 @@ function fail(int $code, string $error_code, string $error_message, array $extra
     $error_code,
     $orderMasked,
     $dirName,
+    $fileBase,
     $tokenMasked,
     str_replace(["\n", "\r"], [' ', ' '], $error_message)
   ));
@@ -120,6 +123,7 @@ $REQUEST_ID = bin2hex(random_bytes(8));
 $AUTH_CONTEXT = ['mode' => 'none', 'project_token' => ''];
 $ORDER_ID_CLEAN = '';
 $ORDER_DIR_NAME = '';
+$FILE_BASE_CLEAN = '';
 
 function extract_project_token(): string {
   $t = (string)($_SERVER['HTTP_X_PROJECT_TOKEN'] ?? '');
@@ -191,7 +195,7 @@ function mb_substr_safe(string $s, int $start, int $len): string {
   return substr($s, $start, $len);
 }
 
-function clean_id(string $raw): string {
+function clean_id(string $raw, int $maxLen = 32): string {
   $s = trim($raw);
   if ($s === '') return '';
 
@@ -206,7 +210,7 @@ function clean_id(string $raw): string {
   $s = preg_replace('~_+~u', '_', $s) ?? $s;
   $s = preg_replace('~^-+|_+$|^_+|-+$~u', '', $s) ?? $s;
   $s = ltrim($s, '.');
-  $s = mb_substr_safe($s, 0, 32);
+  $s = mb_substr_safe($s, 0, $maxLen);
 
   return $s;
 }
@@ -219,31 +223,52 @@ function random_suffix(int $len): string {
   return $out;
 }
 
-function pick_unique_id(string $prefix, string $dir): string {
+/**
+ * Z order_id typu "ABC_s01of05" robimy katalog "ABC".
+ */
+function base_order_dir_from_clean_order_id(string $clean): string {
+  if ($clean === '') return '';
+  $base = preg_replace('~_s\d{2}of\d{1,2}$~u', '', $clean) ?? $clean;
+  return trim($base, '_-');
+}
+
+/**
+ * Wybór unikalnej bazy nazwy pliku (bez rozszerzenia).
+ * Jeśli preferowana baza wolna -> używamy jej.
+ * Jeśli kolizja -> dopisujemy suffix.
+ */
+function pick_unique_base(string $preferred, string $dir): string {
+  $preferred = trim($preferred);
+
+  $tryBases = [];
+  if ($preferred !== '') $tryBases[] = $preferred;
+
+  // fallback: losowe
   for ($i = 0; $i < NAME_TRIES; $i++) {
-    $suffix = random_suffix(SHORT_SUFFIX_LEN);
-    $id = $prefix !== '' ? ($prefix . '_' . $suffix) : $suffix;
-
-    $png  = $dir . DIRECTORY_SEPARATOR . $id . '.png';
-    $jpg  = $dir . DIRECTORY_SEPARATOR . $id . '.jpg';
-    $json = $dir . DIRECTORY_SEPARATOR . $id . '.json';
-
-    if (!file_exists($png) && !file_exists($jpg) && !file_exists($json)) return $id;
+    $tryBases[] = ($preferred !== '' ? ($preferred . '_' . random_suffix(SHORT_SUFFIX_LEN)) : random_suffix(SHORT_SUFFIX_LEN));
   }
 
-  $suffix = random_suffix(SHORT_SUFFIX_LEN + 3);
-  return $prefix !== '' ? ($prefix . '_' . $suffix) : $suffix;
+  foreach ($tryBases as $base) {
+    $png  = $dir . DIRECTORY_SEPARATOR . $base . '.png';
+    $jpg  = $dir . DIRECTORY_SEPARATOR . $base . '.jpg';
+    $json = $dir . DIRECTORY_SEPARATOR . $base . '.json';
+    if (!file_exists($png) && !file_exists($jpg) && !file_exists($json)) return $base;
+  }
+
+  // ostatecznie dłuższy suffix
+  return ($preferred !== '' ? ($preferred . '_' . random_suffix(SHORT_SUFFIX_LEN + 3)) : random_suffix(SHORT_SUFFIX_LEN + 3));
 }
 
 /* ==== ORDER / DIR ==== */
-$ORDER_ID_CLEAN = clean_id((string)($_POST['order_id'] ?? ''));
-$ORDER_DIR_NAME = $ORDER_ID_CLEAN !== '' ? $ORDER_ID_CLEAN : 'no_order';
+$ORDER_ID_CLEAN = clean_id((string)($_POST['order_id'] ?? ''), 32);
+$baseForDir = base_order_dir_from_clean_order_id($ORDER_ID_CLEAN);
+$ORDER_DIR_NAME = $baseForDir !== '' ? $baseForDir : 'no_order';
 
 $uploadDir = $uploadRoot . DIRECTORY_SEPARATOR . $ORDER_DIR_NAME;
 ensure_dir($uploadDir, 0755);
 
-/* ==== ID PLIKU ==== */
-$id = pick_unique_id($ORDER_ID_CLEAN, $uploadDir);
+/* ==== FILE BASE (NAZWA) ==== */
+$FILE_BASE_CLEAN = clean_id((string)($_POST['file_base'] ?? ''), 60);
 
 /* ==== PLIK OBRAZU ==== */
 $fileKey = null;
@@ -273,7 +298,15 @@ else {
   fail(415, 'UNSUPPORTED_MEDIA_TYPE', 'Only PNG or JPG allowed', ['mime' => $mime]);
 }
 
-$imageName = $id . '.' . $ext;
+/* ==== FINAL BASE NAME ==== */
+$baseName = pick_unique_base(
+  $FILE_BASE_CLEAN !== '' ? $FILE_BASE_CLEAN : $ORDER_ID_CLEAN,
+  $uploadDir
+);
+
+$id = $baseName;
+
+$imageName = $baseName . '.' . $ext;
 $imagePath = $uploadDir . DIRECTORY_SEPARATOR . $imageName;
 
 if (!move_uploaded_file($_FILES[$fileKey]['tmp_name'], $imagePath)) {
@@ -282,14 +315,12 @@ if (!move_uploaded_file($_FILES[$fileKey]['tmp_name'], $imagePath)) {
 
 /* ==== JSON (opcjonalny) ==== */
 $jsonSaved = false;
-$jsonName = $id . '.json';
+$jsonName = $baseName . '.json';
 $jsonPath = $uploadDir . DIRECTORY_SEPARATOR . $jsonName;
 
 $jsonText = $_POST['json'] ?? '';
 if (is_string($jsonText) && $jsonText !== '') {
-  if (strlen($jsonText) > MAX_JSON_BYTES) {
-    // MVP: nie blokujemy obrazu; JSON pomijamy
-  } else {
+  if (strlen($jsonText) <= MAX_JSON_BYTES) {
     @file_put_contents($jsonPath, $jsonText);
     $jsonSaved = true;
   }
@@ -307,13 +338,14 @@ $baseUrl = 'https://puzzla.nazwa.pl/puzzla/projekt-podkladek/uploads/' . rawurle
 $ip = get_client_ip();
 $tokenMasked = mask_token((string)($AUTH_CONTEXT['project_token'] ?? ''));
 log_line(sprintf(
-  '[%s] request_id=%s ip=%s status=200 ok=1 mode=%s order_id=%s dir=%s token=%s file=%s bytes=%d mime=%s json=%s',
+  '[%s] request_id=%s ip=%s status=200 ok=1 mode=%s order_id=%s dir=%s file_base=%s token=%s file=%s bytes=%d mime=%s json=%s',
   now_iso(),
   $REQUEST_ID,
   $ip,
   (string)($AUTH_CONTEXT['mode'] ?? ''),
   (string)$ORDER_ID_CLEAN,
   (string)$ORDER_DIR_NAME,
+  (string)$FILE_BASE_CLEAN,
   $tokenMasked,
   $imageName,
   $size,
@@ -332,4 +364,4 @@ respond_json(200, [
   'server_ts' => now_iso(),
 ]);
 
-/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-11-03 === */
+/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-11-05 === */
