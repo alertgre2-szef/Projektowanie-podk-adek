@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-14
+ * VERSION: 2026-02-11-15
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-14";
+const CACHE_VERSION = "2026-02-11-15";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -76,6 +76,7 @@ function getQueryParam(name) {
 }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 /* ========END======== [SEKCJA 01] UTIL + DEBUG =========END======== */
+
 
 
 
@@ -2480,6 +2481,100 @@ async function applyProductConfig(cfg) {
 
 /* ========START======== [SEKCJA 26] INIT =========START======== */
 (async function init() {
+  function ensureResetProjectButton() {
+    const ID = "btnResetProject";
+    let btn = document.getElementById(ID);
+    if (btn) return btn;
+
+    btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = ID;
+    btn.textContent = "↺ Reset projektu";
+    btn.title = "Wyczyść zapisane zdjęcia/sloty dla tego zamówienia na tym urządzeniu";
+
+    // Bez zależności od CSS — ma działać wszędzie
+    btn.style.position = "fixed";
+    btn.style.right = "12px";
+    btn.style.bottom = "12px";
+    btn.style.zIndex = "9999";
+    btn.style.padding = "10px 12px";
+    btn.style.borderRadius = "12px";
+    btn.style.border = "1px solid rgba(0,0,0,0.15)";
+    btn.style.background = "#ffffff";
+    btn.style.color = "#111827";
+    btn.style.font = "600 13px/1.1 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
+    btn.style.boxShadow = "0 8px 20px rgba(0,0,0,0.12)";
+    btn.style.cursor = "pointer";
+    btn.style.opacity = "0.92";
+
+    btn.addEventListener("mouseenter", () => { btn.style.opacity = "1"; });
+    btn.addEventListener("mouseleave", () => { btn.style.opacity = "0.92"; });
+
+    document.body.appendChild(btn);
+    return btn;
+  }
+
+  async function resetProjectNow() {
+    if (productionLocked) return;
+
+    const ok = window.confirm(
+      "Zresetować projekt na tym urządzeniu?\n\n" +
+      "• usunie zapisane zdjęcia/sloty (localStorage)\n" +
+      "• wyczyści kadrowanie i szablony\n\n" +
+      "To dotyczy tylko tego zamówienia i tej przeglądarki."
+    );
+    if (!ok) return;
+
+    try {
+      // zatrzymaj opóźnione commity
+      if (wheelTimer) { window.clearTimeout(wheelTimer); wheelTimer = 0; }
+      commitGestureIfActive();
+
+      // usuń zapisy (nowy + stary klucz migracji)
+      try {
+        localStorage.removeItem(slotKeyBase());
+        localStorage.removeItem(slotKeyBaseV1());
+      } catch {}
+
+      // reset runtime stanu slotów
+      slots = new Array(QTY).fill(null).map(() => ({
+        photoDataUrl: "",
+        shape: "square",
+        templateId: "",
+        rotationDeg: 0,
+        userScale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        freeMove: false,
+      }));
+
+      // reset historii per-slot (jeśli istnieje)
+      if (typeof historyBySlot !== "undefined") {
+        historyBySlot = Array.from({ length: QTY }, () => ({ stack: [], index: -1 }));
+      }
+      if (typeof uploadSeq !== "undefined") {
+        uploadSeq++; // unieważnij ewentualne trwające uploady
+      }
+
+      // wyczyść bieżący runtime widoku
+      currentSlot = 0;
+      slotApplySeq++;
+      await applySlotState(slotApplySeq);
+
+      // zapisz świeży stan (pusty)
+      saveSlotsToLocal();
+
+      markClean();
+      refreshExportButtons();
+      updateSlotUi();
+
+      toast("Projekt zresetowany ✅");
+    } catch (e) {
+      derr(e);
+      toast("Nie udało się zresetować projektu.");
+    }
+  }
+
   initTheme();
   wireThemeButtons();
 
@@ -2545,8 +2640,17 @@ async function applyProductConfig(cfg) {
   pushHistory();
   markClean();
 
+  // przycisk resetu projektu (dla testów i dla klientów)
+  const resetBtn = ensureResetProjectButton();
+  resetBtn.disabled = false;
+  resetBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    resetProjectNow();
+  });
+
   dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, QTY });
 })();
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-13 === */
+
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-14 === */
