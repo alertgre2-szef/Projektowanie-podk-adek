@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-03
+ * VERSION: 2026-02-11-04
  */
 
 /* ===================== [SEKCJA 1] UTIL + DEBUG ===================== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-03";
+const CACHE_VERSION = "2026-02-11-04";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -136,10 +136,13 @@ function getUrlParamAny(keys) {
   }
   return "";
 }
-function getNickFromUrl() { return getUrlParamAny(["nick", "n", "order", "order_id"]); }
+
+// UWAGA: "n" rezerwujemy dla ilości (qty) zgodnie z wymaganiem,
+// więc nie używamy go jako nick.
+function getNickFromUrl() { return getUrlParamAny(["nick", "order", "order_id"]); }
 function getOrderIdFromUrl() { return getUrlParamAny(["order_id", "order"]); }
 function getQtyFromUrl() {
-  const raw = getUrlParamAny(["qty", "q", "quantity", "count"]);
+  const raw = getUrlParamAny(["qty", "n", "q", "quantity", "count"]);
   const n = Number(raw);
   if (!Number.isFinite(n)) return 1;
   const i = Math.floor(n);
@@ -155,7 +158,7 @@ function slotKeyBase() {
   // autosave per token + order_id/nick + qty
   const t = String(getQueryParam("token") || "no_token");
   const oid = String(getOrderIdFromUrl() || getNickFromUrl() || "no_order");
-  return `EDITOR_SLOTS_V1|${t}|${oid}|qty=${QTY}`;
+  return `EDITOR_SLOTS_V2|${t}|${oid}|qty=${QTY}`;
 }
 
 function slotUiEls() {
@@ -180,7 +183,7 @@ function updateSlotUi() {
 
   if (els.ind) els.ind.textContent = `${currentSlot + 1} / ${QTY}`;
 
-  const done = slots.filter(s => !!s.photoDataUrl).length;
+  const done = slots.filter(s => !!s.photoSrcDataUrl || !!s.photoDataUrl).length;
   if (els.prog) els.prog.textContent = `Ukończono: ${done} / ${QTY}`;
 
   if (els.prev) els.prev.disabled = productionLocked || currentSlot <= 0;
@@ -222,11 +225,29 @@ function toast(msg, ms = 10000) {
   timer = window.setTimeout(() => removeToast(), ms);
 }
 
+function _sanitizeSnap(s) {
+  if (!s || typeof s !== "object") return null;
+  return {
+    shape: String(s.shape || "square"),
+    userScale: Number(s.userScale || 1),
+    offsetX: Number(s.offsetX || 0),
+    offsetY: Number(s.offsetY || 0),
+    rotationDeg: Number(s.rotationDeg || 0),
+    freeMove: !!s.freeMove,
+    templateId: s.templateId == null ? null : String(s.templateId),
+  };
+}
+
 function saveSlotsToLocal() {
   try {
     const key = slotKeyBase();
     const snapshot = slots.map((s) => ({
+      // V2: zapisujemy źródłowy obraz w pełnej jakości
+      photoSrcDataUrl: s.photoSrcDataUrl || "",
+
+      // V1 fallback (migracja): jeżeli ktoś ma stare dane
       photoDataUrl: s.photoDataUrl || "",
+
       shape: s.shape || "square",
       templateId: s.templateId || "",
       rotationDeg: Number(s.rotationDeg || 0),
@@ -235,8 +256,12 @@ function saveSlotsToLocal() {
       offsetX: Number(s.offsetX || 0),
       offsetY: Number(s.offsetY || 0),
       freeMove: !!s.freeMove,
+
+      // per-slot historia
+      history: Array.isArray(s.history) ? s.history.map(_sanitizeSnap).filter(Boolean) : [],
+      historyIndex: Number.isFinite(s.historyIndex) ? Number(s.historyIndex) : -1,
     }));
-    localStorage.setItem(key, JSON.stringify({ v: 1, qty: QTY, slots: snapshot }));
+    localStorage.setItem(key, JSON.stringify({ v: 2, qty: QTY, slots: snapshot }));
   } catch {}
 }
 
@@ -246,8 +271,8 @@ function loadSlotsFromLocal() {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (!data || data.v !== 1 || data.qty !== QTY || !Array.isArray(data.slots)) return null;
-    return data.slots;
+    if (!data || (data.v !== 1 && data.v !== 2) || data.qty !== QTY || !Array.isArray(data.slots)) return null;
+    return { v: data.v, slots: data.slots };
   } catch {
     return null;
   }
@@ -266,6 +291,7 @@ async function setSlot(index) {
   // wczytaj stan slotu
   await applySlotState();
   updateSlotUi();
+  updateUndoRedoButtons();
 }
 
 function wireSlotUi() {
@@ -792,11 +818,23 @@ function setFreeMove(next, { silent = false, skipHistory = false } = {}) {
 }
 if (btnFreeMove) btnFreeMove.addEventListener("click", () => setFreeMove(!freeMove));
 
-/* ===================== [HISTORIA] (5 kroków) ===================== */
+/* ===================== [HISTORIA] (5 kroków) PER SLOT ===================== */
 const HISTORY_MAX = 5;
-let history = [];
-let historyIndex = -1;
 let suppressHistory = false;
+
+function getSlotHistoryState() {
+  const s = slots[currentSlot];
+  if (!s) return { history: [], historyIndex: -1 };
+  if (!Array.isArray(s.history)) s.history = [];
+  if (!Number.isFinite(s.historyIndex)) s.historyIndex = -1;
+  return { history: s.history, historyIndex: s.historyIndex };
+}
+function setSlotHistoryState(history, historyIndex) {
+  const s = slots[currentSlot];
+  if (!s) return;
+  s.history = history;
+  s.historyIndex = historyIndex;
+}
 
 function snapshot() {
   return {
@@ -824,6 +862,10 @@ function sameSnap(a, b) {
 function pushHistory() {
   if (suppressHistory) return;
 
+  const hs = getSlotHistoryState();
+  let history = hs.history;
+  let historyIndex = hs.historyIndex;
+
   const snap = snapshot();
   const last = history[historyIndex];
   if (last && sameSnap(last, snap)) return;
@@ -834,12 +876,18 @@ function pushHistory() {
   if (history.length > HISTORY_MAX) history.shift();
   historyIndex = history.length - 1;
 
+  setSlotHistoryState(history, historyIndex);
+
   updateUndoRedoButtons();
 
   persistCurrentSlotState();
   saveSlotsToLocal();
 }
 function updateUndoRedoButtons() {
+  const hs = getSlotHistoryState();
+  const history = hs.history;
+  const historyIndex = hs.historyIndex;
+
   if (btnUndo) btnUndo.disabled = historyIndex <= 0;
   if (btnRedo) btnRedo.disabled = historyIndex >= history.length - 1;
 
@@ -882,15 +930,19 @@ async function applyStateFromHistory(snap) {
   saveSlotsToLocal();
 }
 async function undo() {
-  if (historyIndex <= 0) return;
-  historyIndex--;
-  await applyStateFromHistory(history[historyIndex]);
+  const hs = getSlotHistoryState();
+  if (hs.historyIndex <= 0) return;
+  hs.historyIndex--;
+  setSlotHistoryState(hs.history, hs.historyIndex);
+  await applyStateFromHistory(hs.history[hs.historyIndex]);
   markDirty();
 }
 async function redo() {
-  if (historyIndex >= history.length - 1) return;
-  historyIndex++;
-  await applyStateFromHistory(history[historyIndex]);
+  const hs = getSlotHistoryState();
+  if (hs.historyIndex >= hs.history.length - 1) return;
+  hs.historyIndex++;
+  setSlotHistoryState(hs.history, hs.historyIndex);
+  await applyStateFromHistory(hs.history[hs.historyIndex]);
   markDirty();
 }
 if (btnUndo) btnUndo.addEventListener("click", undo);
@@ -1029,15 +1081,6 @@ function resetPhotoTransformToCover() {
   applyClampToOffsets();
 }
 
-function imageToDataUrl(img) {
-  try {
-    // zachowujemy to co widzi klient jako podgląd (kompresja umiarkowana)
-    return canvas.toDataURL("image/jpeg", 0.85);
-  } catch {
-    return "";
-  }
-}
-
 function loadImageFromDataUrl(dataUrl) {
   return new Promise((resolve, reject) => {
     if (!dataUrl) return resolve(null);
@@ -1045,6 +1088,19 @@ function loadImageFromDataUrl(dataUrl) {
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error("Nie mogę wczytać obrazu ze slotu"));
     img.src = dataUrl;
+  });
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    try {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result || ""));
+      fr.onerror = () => reject(new Error("Nie mogę odczytać pliku"));
+      fr.readAsDataURL(file);
+    } catch (e) {
+      reject(e);
+    }
   });
 }
 
@@ -1062,26 +1118,19 @@ function persistCurrentSlotState() {
   s.offsetY = offsetY;
   s.freeMove = freeMove;
 
-  // jeśli mamy zdjęcie w slocie, zapisz dataUrl (żeby po przełączeniu nie ginęło)
-  if (uploadedImg) {
-    // zapisujemy obraz "źródłowy" jako dataURL z pliku wejściowego (a nie z canvasa po szablonie)
-    // -> wykorzystamy aktualnie wgrany obraz w slocie (bez dodatkowych kombinacji)
-    // Tu przyjmujemy, że aktualny obraz pochodzi z photoInput i jest już w pamięci.
-    // Dla prostoty zapisujemy dataURL z canvasa jako "stan slotu" (MVP).
-    s.photoDataUrl = canvas.toDataURL("image/jpeg", 0.92);
-  } else {
-    s.photoDataUrl = "";
-  }
+  // historia per slot już siedzi w slots[currentSlot].history/.historyIndex
 }
 
 async function applySlotState() {
   const s = slots[currentSlot];
   if (!s) return;
 
-  // shape
+  // history UI
+  updateUndoRedoButtons();
+
+  // shape + template (od razu, bo to UI)
   if (s.shape) await setShape(String(s.shape), { skipHistory: true });
 
-  // template
   if (s.templateId) {
     currentTemplate = { id: s.templateId, name: s.templateId };
     await applyTemplate(currentTemplate, { skipHistory: true, silentErrors: true });
@@ -1089,14 +1138,23 @@ async function applySlotState() {
     clearTemplateSelection({ skipHistory: true });
   }
 
-  // photo
+  // photo: preferujemy V2 (źródło), a jeśli go nie ma — wspieramy migrację V1
+  const src = String(s.photoSrcDataUrl || "").trim();
+  const legacy = String(s.photoDataUrl || "").trim();
+
   uploadedImg = null;
-  if (s.photoDataUrl) {
+  if (src || legacy) {
     try {
-      const img = await loadImageFromDataUrl(s.photoDataUrl);
+      const img = await loadImageFromDataUrl(src || legacy);
       uploadedImg = img;
+
+      // jeśli był tylko legacy, to migrujemy “na przyszłość”
+      if (!src && legacy) {
+        s.photoSrcDataUrl = legacy;
+      }
     } catch {
       uploadedImg = null;
+      s.photoSrcDataUrl = "";
       s.photoDataUrl = "";
     }
   }
@@ -1106,9 +1164,8 @@ async function applySlotState() {
   syncFreeMoveButton();
 
   if (uploadedImg) {
-    // coverScale i transform
+    // coverScale liczymy z obrazu i obrotu — to jest bezpieczniejszy “source of truth”
     ensureCoverScaleForRotation();
-    coverScale = Number(s.coverScale || coverScale) || coverScale;
 
     userScale = Number(s.userScale || 1) || 1;
     offsetX = Number(s.offsetX || 0) || 0;
@@ -1134,22 +1191,30 @@ async function applySlotState() {
 }
 
 if (photoInput) {
-  photoInput.addEventListener("change", (e) => {
+  photoInput.addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const url = URL.createObjectURL(file);
-    const img = new Image();
+    try {
+      // zapisujemy źródło do slota (pełna jakość), a do podglądu używamy Image
+      const dataUrl = await fileToDataUrl(file);
+      const img = await loadImageFromDataUrl(dataUrl);
 
-    img.onload = () => {
       uploadedImg = img;
       qualityWarnLevel = 0;
+
+      // wpis do slota
+      const s = slots[currentSlot];
+      if (s) {
+        s.photoSrcDataUrl = dataUrl;
+        s.photoDataUrl = ""; // legacy czyścimy
+      }
 
       resetPhotoTransformToCover();
       redraw();
       updateStatusBar();
-      pushHistory();
 
+      pushHistory();
       refreshExportButtons();
 
       toast(`Zdjęcie wgrane ✅ (sztuka ${currentSlot + 1}/${QTY})`);
@@ -1157,15 +1222,14 @@ if (photoInput) {
 
       markDirty();
 
-      // zapisz w slocie + autosave
       persistCurrentSlotState();
       saveSlotsToLocal();
-
-      URL.revokeObjectURL(url);
+    } catch (err) {
+      derr(err);
+      toast("Nie udało się wczytać zdjęcia.");
+    } finally {
       if (photoInput) photoInput.value = ""; // pozwala wgrać ten sam plik ponownie
-    };
-
-    img.src = url;
+    }
   });
 }
 
@@ -1503,6 +1567,8 @@ async function applyTemplate(t, opts = {}) {
     templateEditImg = img;
     redraw();
 
+    // per-slot zapis szablonu
+    if (slots[currentSlot]) slots[currentSlot].templateId = String(t.id || "");
     persistCurrentSlotState();
     saveSlotsToLocal();
   };
@@ -1524,6 +1590,7 @@ function clearTemplateSelection(opts = {}) {
   updateStatusBar();
   if (!opts.skipHistory) pushHistory();
 
+  if (slots[currentSlot]) slots[currentSlot].templateId = "";
   persistCurrentSlotState();
   saveSlotsToLocal();
 }
@@ -1933,7 +2000,9 @@ function dpiWarningText(dpi) {
 }
 
 function slotHasPhoto(i) {
-  return !!(slots[i] && slots[i].photoDataUrl);
+  const s = slots[i];
+  if (!s) return false;
+  return !!(s.photoSrcDataUrl || s.photoDataUrl);
 }
 
 async function ensureAllSlotsHavePhotosOrConfirm() {
@@ -1996,8 +2065,6 @@ async function sendToProduction(skipNickCheck = false) {
     for (let i = 0; i < QTY; i++) {
       await setSlot(i);
 
-      // w tym miejscu uploadedImg jest stanem slotu i
-      // renderProductionJpgBlob tworzy plik do druku
       const dpi = getEffectiveDpi();
       const dpiWarn = dpiWarningText(dpi);
       if (dpiWarn) {
@@ -2133,7 +2200,9 @@ async function applyProductConfig(cfg) {
 
   // init slotów
   slots = new Array(QTY).fill(null).map(() => ({
-    photoDataUrl: "",
+    photoSrcDataUrl: "", // V2: źródłowy obraz w pełnej jakości
+    photoDataUrl: "",    // legacy (V1) — zostawiamy tylko do migracji
+
     shape: "square",
     templateId: "",
     rotationDeg: 0,
@@ -2142,15 +2211,22 @@ async function applyProductConfig(cfg) {
     offsetX: 0,
     offsetY: 0,
     freeMove: false,
+
+    history: [],
+    historyIndex: -1,
   }));
 
-  const saved = loadSlotsFromLocal();
-  if (saved && saved.length === QTY) {
+  const savedPack = loadSlotsFromLocal();
+  if (savedPack && savedPack.slots && savedPack.slots.length === QTY) {
+    const saved = savedPack.slots;
     for (let i = 0; i < QTY; i++) {
       const s = saved[i] || {};
       slots[i] = {
         ...slots[i],
+
+        photoSrcDataUrl: String(s.photoSrcDataUrl || ""),
         photoDataUrl: String(s.photoDataUrl || ""),
+
         shape: String(s.shape || "square"),
         templateId: String(s.templateId || ""),
         rotationDeg: Number(s.rotationDeg || 0),
@@ -2159,12 +2235,16 @@ async function applyProductConfig(cfg) {
         offsetX: Number(s.offsetX || 0),
         offsetY: Number(s.offsetY || 0),
         freeMove: !!s.freeMove,
+
+        history: Array.isArray(s.history) ? s.history.map(_sanitizeSnap).filter(Boolean) : [],
+        historyIndex: Number.isFinite(s.historyIndex) ? Number(s.historyIndex) : -1,
       };
     }
   }
 
   wireSlotUi();
   updateSlotUi();
+  updateUndoRedoButtons();
 
   setUiTitleSubtitle("Edytor", "Ładowanie konfiguracji…");
   refreshExportButtons();
@@ -2189,10 +2269,12 @@ async function applyProductConfig(cfg) {
 
   redraw();
   updateStatusBar();
+
+  // start historii dla bieżącego slota
   pushHistory();
   markClean();
 
   dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, QTY });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-03 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-04 === */
