@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-16
+ * VERSION: 2026-02-11-17
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-16";
+const CACHE_VERSION = "2026-02-11-17";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -298,7 +298,15 @@ async function setSlot(index) {
     wheelTimer = 0;
   }
 
-  commitGestureIfActive();
+  // WAŻNE: zamknij aktywny gest (i nie pozwól mu “przeskoczyć” na nowy slot)
+  try { commitGestureIfActive(); } catch {}
+
+  // Wymuszone „odklejenie” pointerów przy przełączaniu slota (mobile fix)
+  try {
+    if (typeof pointers !== "undefined" && pointers && typeof pointers.clear === "function") pointers.clear();
+    if (typeof isDragging !== "undefined") isDragging = false;
+    if (typeof pinchStartDist !== "undefined") pinchStartDist = 0;
+  } catch {}
 
   persistCurrentSlotState();
   saveSlotsToLocal();
@@ -310,7 +318,7 @@ async function setSlot(index) {
   updateSlotUi();
 
   // Historia/undo per-slot: po przełączeniu pokaż właściwe przyciski
-  updateUndoRedoButtons();
+  try { updateUndoRedoButtons(); } catch {}
 }
 
 function wireSlotUi() {
@@ -321,6 +329,7 @@ function wireSlotUi() {
   els.next.addEventListener("click", () => setSlot(currentSlot + 1));
 }
 /* ========END======== [SEKCJA 04] SLOTY (N sztuk) + LOCALSTORAGE =========END======== */
+
 
 
 
@@ -1464,6 +1473,9 @@ let pinchStartScale = 1;
 let gestureActive = false;
 let gestureMoved = false;
 
+// PRZYPINAMY gest do slota startowego (żeby nie “przeciekał” na inne sloty)
+let gestureSlot = 0;
+
 function commitGestureIfActive() {
   if (!gestureActive) return;
   if (gestureMoved) {
@@ -1491,6 +1503,7 @@ canvas.addEventListener("pointerdown", (e) => {
   if (!gestureActive) {
     gestureActive = true;
     gestureMoved = false;
+    gestureSlot = currentSlot; // <-- slot startu gestu
   }
 
   if (pointers.size === 1) {
@@ -1512,6 +1525,9 @@ canvas.addEventListener("pointerdown", (e) => {
 canvas.addEventListener("pointermove", (e) => {
   if (!uploadedImg) return;
   if (!pointers.has(e.pointerId)) return;
+
+  // jeśli slot zmienił się w trakcie gestu — ignoruj ruchy (to było źródło “zoom dla wszystkich”)
+  if (gestureActive && currentSlot !== gestureSlot) return;
 
   const p = clientToCanvasPx(e.clientX, e.clientY);
   pointers.set(e.pointerId, { x: p.x, y: p.y });
@@ -1564,7 +1580,8 @@ function endPointer(e) {
     isDragging = false;
 
     if (gestureActive) {
-      if (gestureMoved) {
+      // jeśli slot się zmienił w trakcie gestu — nie commituj nic
+      if (currentSlot === gestureSlot && gestureMoved) {
         pushHistory();
         markDirty();
         saveSlotsToLocal();
@@ -1585,6 +1602,9 @@ canvas.addEventListener(
   "wheel",
   (e) => {
     if (!uploadedImg) return;
+
+    // wheel też przypinamy do slota bieżącego
+    gestureSlot = currentSlot;
 
     const zoom = e.deltaY < 0 ? 1.08 : 1 / 1.08;
     setUserScaleKeepingPoint(userScale * zoom);
@@ -1642,6 +1662,7 @@ if (btnZoomOut) {
   });
 }
 /* ========END======== [SEKCJA 18] DRAG + ZOOM (GESTY) =========END======== */
+
 
 
 /* ========START======== [SEKCJA 19] SZABLONY =========START======== */
@@ -2712,4 +2733,4 @@ async function applyProductConfig(cfg) {
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-16 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-17 === */
