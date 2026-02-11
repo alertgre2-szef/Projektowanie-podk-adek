@@ -1,4 +1,4 @@
-<!-- editor/index.html v18 -->
+<!-- editor/index.html v19 -->
 <!doctype html>
 <html lang="pl">
 <head>
@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Edytor</title>
 
-  <link rel="stylesheet" href="./style.css?v=2026-02-11-18" />
+  <link rel="stylesheet" href="./style.css?v=2026-02-11-19" />
 </head>
 <body>
   <div class="app">
@@ -84,6 +84,16 @@
           </select>
 
           <button id="btnApplyProductSelect" class="btn" type="button" disabled>Uruchom edytor</button>
+        </div>
+
+        <!-- PASEK STATUSU KOMPLETU (nad "Sztuki") -->
+        <div
+          id="slotCompletionBanner"
+          class="completionBanner completionBanner--need"
+          style="display:none;"
+          aria-live="polite"
+        >
+          Brakuje projektów — uzupełnij zdjęcia.
         </div>
 
         <!-- SLOTY (WIELO-SZTUK) -->
@@ -202,8 +212,8 @@
     </div>
   </div>
 
-  <script src="./editor-11-18.js" defer></script>
+  <script src="./editor-11-19.js" defer></script>
 </body>
 </html>
 
-<!-- === KONIEC PLIKU — editor/index.html | FILE_VERSION: 2026-02-11-18 === -->
+<!-- === KONIEC PLIKU — editor/index.html | FILE_VERSION: 2026-02-11-19 === -->
