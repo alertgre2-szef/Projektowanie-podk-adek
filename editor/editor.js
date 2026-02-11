@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-12
+ * VERSION: 2026-02-11-13
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-12";
+const CACHE_VERSION = "2026-02-11-13";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -281,9 +281,19 @@ function loadSlotsFromLocal() {
 
 let slotApplySeq = 0;
 
+/** wheel commit potrafi odpalić się po zmianie slota — ignorujemy spóźnione commity */
+let wheelTimer = 0;
+let wheelCommitSlot = 0;
+
 async function setSlot(index) {
   const next = Math.max(0, Math.min(QTY - 1, index));
   if (next === currentSlot) return;
+
+  // WAŻNE: anuluj opóźniony wheel-commit, żeby nie zapisał się do innego slota
+  if (wheelTimer) {
+    window.clearTimeout(wheelTimer);
+    wheelTimer = 0;
+  }
 
   commitGestureIfActive();
 
@@ -916,7 +926,7 @@ async function applyStateFromHistory(snap) {
     clearTemplateSelection({ skipHistory: true });
   } else {
     currentTemplate = { id: snap.templateId, name: snap.templateId };
-    await applyTemplate(currentTemplate, { skipHistory: true, silentErrors: true });
+    await applyTemplate(currentTemplate, { skipHistory: true, silentErrors: true, slotIndex: currentSlot });
   }
 
   rotationDeg = normDeg(snap.rotationDeg);
@@ -1118,8 +1128,8 @@ function persistCurrentSlotState() {
   s.offsetY = offsetY;
   s.freeMove = freeMove;
 
-  // UWAGA: NIE nadpisujemy s.photoDataUrl z canvasa — ma pozostać oryginał
-  if (!uploadedImg) s.photoDataUrl = "";
+  // KLUCZ: NIE kasujemy photoDataUrl automatycznie, bo uploadedImg może być chwilowo null
+  // (np. w trakcie przełączania slota / opóźnionych callbacków).
 }
 
 function persistAndSave() {
@@ -1159,6 +1169,7 @@ async function applySlotState(seq = 0) {
       uploadedImg = img;
     } catch {
       uploadedImg = null;
+      // jeśli nie da się wczytać — dopiero wtedy czyścimy dane zdjęcia
       s.photoDataUrl = "";
     }
   }
@@ -1239,7 +1250,6 @@ if (photoInput) {
 /* ========END======== [SEKCJA 16] ZDJĘCIE (LOAD) + SLOT STATE =========END======== */
 
 
-
 /* ========START======== [SEKCJA 17] OBRÓT =========START======== */
 function setRotation(nextDeg, opts = {}) {
   if (!uploadedImg) { toast("Najpierw wgraj zdjęcie."); return; }
@@ -1255,7 +1265,6 @@ function setRotation(nextDeg, opts = {}) {
   if (!opts.skipHistory) pushHistory();
   if (!opts.skipHistory) markDirty();
 
-  // KLUCZ: zapis stanu slotu po obrocie
   persistAndSave();
 }
 function rotateBy(deltaDeg) {
@@ -1308,7 +1317,6 @@ function fitToCover() {
   maybeWarnQuality(false);
   markDirty();
 
-  // KLUCZ: zapis po fit
   persistAndSave();
 }
 
@@ -1325,7 +1333,6 @@ function centerPhoto() {
   toast("Wyśrodkowano");
   markDirty();
 
-  // KLUCZ: zapis po center
   persistAndSave();
 }
 
@@ -1345,7 +1352,6 @@ function commitGestureIfActive() {
   if (gestureMoved) {
     pushHistory();
     markDirty();
-    // KLUCZ: zapis po zakończeniu gestu (gdy zmieniło)
     persistAndSave();
   }
   gestureActive = false;
@@ -1442,7 +1448,6 @@ function endPointer(e) {
       if (gestureMoved) {
         pushHistory();
         markDirty();
-        // KLUCZ: zapis po końcu drag/pinch
         persistAndSave();
       }
       gestureActive = false;
@@ -1471,13 +1476,20 @@ canvas.addEventListener(
   { passive: false }
 );
 
-let wheelTimer = 0;
 function wheelHistoryCommit() {
+  // zapamiętaj slot, którego dotyczy wheel
+  wheelCommitSlot = currentSlot;
+
   if (wheelTimer) window.clearTimeout(wheelTimer);
   wheelTimer = window.setTimeout(() => {
+    // jeśli w międzyczasie zmieniono slot — nie zapisuj (to jest “przeciekanie”)
+    if (currentSlot !== wheelCommitSlot) {
+      wheelTimer = 0;
+      return;
+    }
+
     pushHistory();
     markDirty();
-    // KLUCZ: zapis po wheel-zoom commit
     persistAndSave();
     wheelTimer = 0;
   }, 180);
@@ -1511,7 +1523,6 @@ if (btnZoomOut) {
   });
 }
 /* ========END======== [SEKCJA 18] DRAG + ZOOM (GESTY) =========END======== */
-
 
 
 /* ========START======== [SEKCJA 19] SZABLONY =========START======== */
@@ -1588,7 +1599,7 @@ function renderTemplateGrid(templates) {
     item.onclick = async () => {
       currentTemplate = t;
 
-      // KLUCZ: zapisz templateId natychmiast (nawet jeśli edit.png ładuje się chwilę)
+      // zapis templateId natychmiast
       persistAndSave();
 
       await applyTemplate(t, { slotIndex: currentSlot });
@@ -1615,7 +1626,6 @@ async function applyTemplate(t, opts = {}) {
 
   return await new Promise((resolve) => {
     img.onload = () => {
-      // Guard: nie pozwól, by spóźniony obraz nadpisał inny slot/inna decyzję
       if (mySeq !== templateReqSeq) return resolve(false);
       if (currentSlot !== startedSlot) return resolve(false);
       if (!currentTemplate || String(currentTemplate.id || "") !== startedTemplateId) return resolve(false);
@@ -1649,7 +1659,6 @@ function clearTemplateSelection(opts = {}) {
   persistAndSave();
 }
 /* ========END======== [SEKCJA 19] SZABLONY =========END======== */
-
 
 
 /* ========START======== [SEKCJA 20] EXPORT (NAZWY + PREVIEW JPG) =========START======== */
@@ -1845,7 +1854,7 @@ function buildProjectJson({ slotIndex, slotTotal, baseOrderId }) {
   }, null, 2);
 }
 
-/** Białe pole + czarny nick (w spadzie) — tylko na PRINT */
+/** NICK: czerwony tekst + biała obwódka (w spadzie) — tylko na PRINT */
 function drawNickLabelOnPrint() {
   const nick = (nickInput?.value || "").trim();
   if (!nick) return;
@@ -1853,23 +1862,24 @@ function drawNickLabelOnPrint() {
   const fontPx = Math.max(12, Math.round((PRINT_DPI * 6) / 72));
   const pad = Math.max(2, Math.round(fontPx * 0.22));
 
-  const x = 2;
-  const y = 2;
+  const x = 2 + pad;
+  const y = 2 + pad;
 
   ctx.save();
   ctx.font = `${fontPx}px Arial, sans-serif`;
   ctx.textBaseline = "top";
+  ctx.lineJoin = "round";
 
   const text = nick.length > 32 ? (nick.slice(0, 32) + "…") : nick;
-  const tw = Math.ceil(ctx.measureText(text).width);
-  const boxW = Math.min(CANVAS_PX - x - 1, tw + pad * 2);
-  const boxH = fontPx + pad * 2;
 
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(x, y, boxW, boxH);
+  // biała obwódka
+  ctx.lineWidth = Math.max(2, Math.round(fontPx * 0.25));
+  ctx.strokeStyle = "#ffffff";
+  ctx.strokeText(text, x, y);
 
-  ctx.fillStyle = "#000000";
-  ctx.fillText(text, x + pad, y + pad);
+  // czerwony fill
+  ctx.fillStyle = "#d00000";
+  ctx.fillText(text, x, y);
 
   ctx.restore();
 }
@@ -2229,7 +2239,13 @@ async function sendToProduction(skipNickCheck = false) {
       const dpiWarn = dpiWarningText(dpi);
       if (dpiWarn) {
         const ok = window.confirm(`Podkładka ${i + 1}/${QTY}:\n\n` + dpiWarn);
-        if (!ok) throw new Error("Przerwano przez użytkownika (DPI warning)");
+        if (!ok) {
+          setUiLocked(false);
+          toast("Wysyłka przerwana (ostrzeżenie jakości).");
+          closeErrorOverlay();
+          updateSlotUi();
+          return;
+        }
       }
 
       const jsonText = buildProjectJson({ slotIndex: i, slotTotal: QTY, baseOrderId: commonOrderIdForUpload });
@@ -2461,4 +2477,4 @@ async function applyProductConfig(cfg) {
 })();
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-12 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-13 === */
