@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Edytor</title>
 
-  <link rel="stylesheet" href="./style.css?v=2026-02-10-04" />
+  <link rel="stylesheet" href="./style.css?v=2026-02-11-04" />
 </head>
 <body>
   <div class="app">
@@ -84,6 +84,26 @@
           </select>
 
           <button id="btnApplyProductSelect" class="btn" type="button" disabled>Uruchom edytor</button>
+        </div>
+
+        <!-- SLOTY (WIELO-SZTUK) -->
+        <div class="card" id="slotCard" style="display:none;">
+          <div class="cardTitle">Sztuki</div>
+
+          <div style="display:flex; align-items:center; gap:10px; justify-content:space-between;">
+            <button id="btnSlotPrev" class="btn small secondary" type="button" aria-label="Poprzednia sztuka">← Poprzednia</button>
+
+            <div style="flex:1; text-align:center;">
+              <div id="slotIndicator" style="font-weight:700;">1 / 1</div>
+              <div id="slotProgress" class="smallText" style="margin-top:2px;">Ukończono: 0 / 1</div>
+            </div>
+
+            <button id="btnSlotNext" class="btn small secondary" type="button" aria-label="Następna sztuka">Następna →</button>
+          </div>
+
+          <div class="smallText" style="margin-top:8px;">
+            Każda sztuka ma osobne: zdjęcie, kadr/zoom/obrót, kształt i szablon.
+          </div>
         </div>
 
         <div class="card">
@@ -186,4 +206,4 @@
 </body>
 </html>
 
-<!-- === KONIEC PLIKU — editor/index.html | FILE_VERSION: 2026-02-10-04 === -->
+<!-- === KONIEC PLIKU — editor/index.html | FILE_VERSION: 2026-02-11-04 === -->
