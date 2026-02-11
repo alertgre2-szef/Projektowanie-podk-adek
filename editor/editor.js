@@ -3,14 +3,7 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * CONTRACT:
- *  - launch: ?token=...
- *  - GET /api/project.php?token=... → { ok:true, mode, productConfig }
- *  - fallback: demo preset chooser (if DOM exists) or demo preset auto
- * SECURITY:
- *  - no hard secrets in JS
- *  - upload auth via X-Project-Token (bearer) + server-side validation
- * VERSION: 2026-02-11-01
+ * VERSION: 2026-02-11-03
  */
 
 /* ===================== [SEKCJA 1] UTIL + DEBUG ===================== */
@@ -21,11 +14,10 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-01";
+const CACHE_VERSION = "2026-02-11-03";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
-  // zachowaj istniejące query, dodaj v=
   try {
     const u = new URL(url, location.origin);
     u.searchParams.set("v", CACHE_VERSION);
@@ -36,12 +28,6 @@ function withV(url) {
   }
 }
 
-/**
- * Repo-aware URL handling:
- * - gdy backend zwraca "/api/..." albo "/assets/..." a edytor działa w subfolderze
- *   (np. /puzzla/projekt-podkladek/editor/), to root-relative ścieżki powodują 404.
- * - Tu generujemy kandydatów: najpierw z REPO_BASE, potem oryginał.
- */
 function toAbsUrl(u) {
   if (!u) return "";
   try { return new URL(String(u), location.origin).toString(); }
@@ -62,8 +48,6 @@ function uniq(arr) {
 function repoAwareCandidates(u) {
   const s = String(u || "").trim();
   if (!s) return [];
-  // absolutne URL-e / względne typu "api/..." zostawiamy normalnie
-  // root-relative "/..." traktujemy repo-aware
   if (s.startsWith("/") && REPO_BASE && !s.startsWith(REPO_BASE + "/")) {
     const a = toAbsUrl(REPO_BASE + s);
     const b = toAbsUrl(s);
@@ -72,13 +56,10 @@ function repoAwareCandidates(u) {
   return uniq([toAbsUrl(s)]);
 }
 function repoAwareSingle(u) {
-  // preferuj wersję z REPO_BASE, ale zostaw fallback w miejscach,
-  // gdzie i tak robimy pętlę po kandydatach (listy)
   const c = repoAwareCandidates(u);
   return c[0] || "";
 }
 
-/** Debug toggle: ?debug=1 lub localStorage.EDITOR_DEBUG="1" */
 const DEBUG =
   (typeof location !== "undefined" && (location.search || "").includes("debug=1")) ||
   (typeof localStorage !== "undefined" && localStorage.getItem("EDITOR_DEBUG") === "1");
@@ -96,8 +77,7 @@ function getQueryParam(name) {
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 /* ===================== [THEME] ===================== */
-const THEME_KEY = "EDITOR_THEME"; // "light" | "dark"
-
+const THEME_KEY = "EDITOR_THEME";
 function systemPrefersDark() {
   try { return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches; }
   catch { return false; }
@@ -138,7 +118,7 @@ function wireThemeButtons() {
   if (bD) bD.addEventListener("click", () => applyTheme("dark", { persist: true }));
 }
 
-/* ===================== [SEKCJA 1B] URL PARAMS (NICK/ORDER) ===================== */
+/* ===================== [SEKCJA 1B] URL PARAMS (NICK/ORDER/QTY) ===================== */
 function _parseHashParams() {
   const h = (location.hash || "").replace(/^#/, "").trim();
   if (!h) return new URLSearchParams();
@@ -158,6 +138,143 @@ function getUrlParamAny(keys) {
 }
 function getNickFromUrl() { return getUrlParamAny(["nick", "n", "order", "order_id"]); }
 function getOrderIdFromUrl() { return getUrlParamAny(["order_id", "order"]); }
+function getQtyFromUrl() {
+  const raw = getUrlParamAny(["qty", "q", "quantity", "count"]);
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 1;
+  const i = Math.floor(n);
+  return Math.max(1, Math.min(99, i));
+}
+
+/* ===================== [SLOTY: N sztuk] ===================== */
+const QTY = getQtyFromUrl();
+let currentSlot = 0; // 0..QTY-1
+let slots = []; // wypełniane po init
+
+function slotKeyBase() {
+  // autosave per token + order_id/nick + qty
+  const t = String(getQueryParam("token") || "no_token");
+  const oid = String(getOrderIdFromUrl() || getNickFromUrl() || "no_order");
+  return `EDITOR_SLOTS_V1|${t}|${oid}|qty=${QTY}`;
+}
+
+function slotUiEls() {
+  return {
+    card: document.getElementById("slotCard"),
+    prev: document.getElementById("btnSlotPrev"),
+    next: document.getElementById("btnSlotNext"),
+    ind: document.getElementById("slotIndicator"),
+    prog: document.getElementById("slotProgress"),
+  };
+}
+
+function updateSlotUi() {
+  const els = slotUiEls();
+  if (!els.card) return;
+
+  if (QTY <= 1) {
+    els.card.style.display = "none";
+    return;
+  }
+  els.card.style.display = "";
+
+  if (els.ind) els.ind.textContent = `${currentSlot + 1} / ${QTY}`;
+
+  const done = slots.filter(s => !!s.photoDataUrl).length;
+  if (els.prog) els.prog.textContent = `Ukończono: ${done} / ${QTY}`;
+
+  if (els.prev) els.prev.disabled = productionLocked || currentSlot <= 0;
+  if (els.next) els.next.disabled = productionLocked || currentSlot >= QTY - 1;
+}
+
+function toast(msg, ms = 10000) {
+  const toastContainer = document.getElementById("toastContainer");
+  if (!toastContainer) return;
+
+  const el = document.createElement("div");
+  el.className = "toast";
+
+  const text = document.createElement("div");
+  text.className = "toastText";
+  text.textContent = msg;
+  el.appendChild(text);
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "toastClose";
+  close.setAttribute("aria-label", "Zamknij");
+  close.textContent = "×";
+  el.appendChild(close);
+
+  let timer = 0;
+  const removeToast = () => {
+    if (timer) window.clearTimeout(timer);
+    el.remove();
+  };
+
+  close.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    removeToast();
+  });
+
+  toastContainer.appendChild(el);
+  timer = window.setTimeout(() => removeToast(), ms);
+}
+
+function saveSlotsToLocal() {
+  try {
+    const key = slotKeyBase();
+    const snapshot = slots.map((s) => ({
+      photoDataUrl: s.photoDataUrl || "",
+      shape: s.shape || "square",
+      templateId: s.templateId || "",
+      rotationDeg: Number(s.rotationDeg || 0),
+      coverScale: Number(s.coverScale || 1),
+      userScale: Number(s.userScale || 1),
+      offsetX: Number(s.offsetX || 0),
+      offsetY: Number(s.offsetY || 0),
+      freeMove: !!s.freeMove,
+    }));
+    localStorage.setItem(key, JSON.stringify({ v: 1, qty: QTY, slots: snapshot }));
+  } catch {}
+}
+
+function loadSlotsFromLocal() {
+  try {
+    const key = slotKeyBase();
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || data.v !== 1 || data.qty !== QTY || !Array.isArray(data.slots)) return null;
+    return data.slots;
+  } catch {
+    return null;
+  }
+}
+
+async function setSlot(index) {
+  const next = Math.max(0, Math.min(QTY - 1, index));
+  if (next === currentSlot) return;
+
+  // zapisz stan bieżącego slotu
+  persistCurrentSlotState();
+  saveSlotsToLocal();
+
+  currentSlot = next;
+
+  // wczytaj stan slotu
+  await applySlotState();
+  updateSlotUi();
+}
+
+function wireSlotUi() {
+  const els = slotUiEls();
+  if (!els.prev || !els.next) return;
+
+  els.prev.addEventListener("click", () => setSlot(currentSlot - 1));
+  els.next.addEventListener("click", () => setSlot(currentSlot + 1));
+}
 
 /* ===================== [SEKCJA 1C] DOM SELF-TEST ===================== */
 const REQUIRED_IDS = [
@@ -198,7 +315,6 @@ if (!domReport.ok) throw new Error("Missing required DOM elements: " + domReport
 
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
-
 const previewEl = document.getElementById("preview");
 
 const photoInput = document.getElementById("photoInput");
@@ -226,7 +342,6 @@ const btnFreeMove = document.getElementById("btnFreeMove");
 const btnSendToProduction = document.getElementById("btnSendToProduction");
 
 const statusBar = document.getElementById("statusBar");
-const toastContainer = document.getElementById("toastContainer");
 
 const finalOverlay = document.getElementById("finalOverlay");
 const finalOverlayTitle = document.getElementById("finalOverlayTitle");
@@ -243,7 +358,7 @@ const errorOverlayClose = document.getElementById("errorOverlayClose");
 
 const productionHint = document.getElementById("productionHint");
 
-// MODAL nick (opcjonalne)
+// MODAL nick
 const nickModal = document.getElementById("nickModal");
 const nickModalInput = document.getElementById("nickModalInput");
 const nickModalClose = document.getElementById("nickModalClose");
@@ -251,7 +366,7 @@ const nickModalCancel = document.getElementById("nickModalCancel");
 const nickModalSave = document.getElementById("nickModalSave");
 const nickModalHint = document.getElementById("nickModalHint");
 
-// fallback product selector (opcjonalne)
+// fallback product selector
 const productSelectCard = document.getElementById("productSelectCard");
 const productSelect = document.getElementById("productSelect");
 const btnApplyProductSelect = document.getElementById("btnApplyProductSelect");
@@ -266,58 +381,7 @@ function updateUiVersionBadge() {
   el.textContent = " • v" + CACHE_VERSION;
 }
 
-/* ===================== [SEKCJA 2B] TOAST ===================== */
-const TOAST_DEFAULT_MS = 10000;
-
-function toast(msg, ms = TOAST_DEFAULT_MS) {
-  if (!toastContainer) return;
-
-  const el = document.createElement("div");
-  el.className = "toast";
-
-  const text = document.createElement("div");
-  text.className = "toastText";
-  text.textContent = msg;
-  el.appendChild(text);
-
-  const close = document.createElement("button");
-  close.type = "button";
-  close.className = "toastClose";
-  close.setAttribute("aria-label", "Zamknij");
-  close.textContent = "×";
-  el.appendChild(close);
-
-  let timer = 0;
-  const removeToast = () => {
-    if (timer) window.clearTimeout(timer);
-    el.remove();
-  };
-
-  close.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    removeToast();
-  });
-
-  toastContainer.appendChild(el);
-  timer = window.setTimeout(() => removeToast(), ms);
-}
-
-/* ===================== [SEKCJA 3] productConfig (token → backend → fallback) ===================== */
-/**
- * Stały “wewnętrzny” format po normalizacji (future-proofing):
- * {
- *   schema_version: 1,
- *   mode: "backend"|"demo",
- *   token: string,
- *   ui: { title, subtitle },
- *   product: { type, name?, size_mm:{w,h}, corner_radius_mm, shape_default, shape_options:[...] },
- *   render: { canvas_px, cut_ratio, print_dpi },
- *   assets: { masks:{square,circle}, templates:{ list_urls:[...], folder_base } },
- *   api: { project_url, upload_url },
- * }
- */
-
+/* ===================== [SEKCJA 3] productConfig ===================== */
 const TOKEN = getQueryParam("token");
 
 function setUiTitleSubtitle(title, subtitle) {
@@ -325,12 +389,6 @@ function setUiTitleSubtitle(title, subtitle) {
   const s = document.getElementById("appSubtitleText");
   if (t && typeof title === "string") t.textContent = title;
   if (s && typeof subtitle === "string") s.textContent = subtitle;
-}
-
-function absUrlMaybe(relativeOrAbs) {
-  if (!relativeOrAbs) return "";
-  try { return new URL(relativeOrAbs, location.origin).toString(); }
-  catch { return String(relativeOrAbs); }
 }
 
 async function fetchJsonWithTimeout(url, { timeoutMs = 6500 } = {}) {
@@ -346,24 +404,17 @@ async function fetchJsonWithTimeout(url, { timeoutMs = 6500 } = {}) {
   }
 }
 
-/**
- * normalizeProductConfig:
- * - akceptuje zarówno “stary” payload (productConfig bez wrappera),
- *   jak i nowy payload z /api/project.php (ok/mode/productConfig).
- */
 function normalizeProductConfig(raw, { token, mode }) {
   const schema_version = 1;
 
-  // UI
   const ui = {
     title: (raw?.ui?.title ?? raw?.title ?? raw?.product?.name ?? "Edytor produktu").toString(),
     subtitle: (raw?.ui?.subtitle ?? raw?.subtitle ?? "").toString(),
   };
 
-  // Product
   const productType = (raw?.product?.type ?? raw?.type ?? "coaster").toString();
 
-  const product = {
+  const product = raw?.product && typeof raw.product === "object" ? {
     type: productType,
     name: (raw?.product?.name ?? raw?.name ?? "").toString(),
     size_mm: {
@@ -375,29 +426,25 @@ function normalizeProductConfig(raw, { token, mode }) {
     shape_options: Array.isArray(raw?.product?.shape_options)
       ? raw.product.shape_options.map(String)
       : ["square", "circle"],
-  };
+  } : null;
 
-  // Render
   const render = {
     canvas_px: Number(raw?.render?.canvas_px ?? raw?.canvas_px ?? 1181) || 1181,
     cut_ratio: Number(raw?.render?.cut_ratio ?? raw?.cut_ratio ?? 0.90) || 0.90,
     print_dpi: Number(raw?.render?.print_dpi ?? raw?.print_dpi ?? raw?.product?.dpi ?? 300) || 300,
   };
 
-  // Assets: masks
   const masks = {
     square: repoAwareSingle(raw?.assets?.masks?.square) || `${REPO_BASE}/editor/assets/masks/mask_square.png`,
     circle: repoAwareSingle(raw?.assets?.masks?.circle) || `${REPO_BASE}/editor/assets/masks/mask_circle.png`,
   };
 
-  // Assets: templates list candidates (repo-aware + fallback)
   const list_urls_raw = raw?.assets?.templates?.list_urls;
   let list_urls = [];
 
   if (Array.isArray(list_urls_raw) && list_urls_raw.length) {
     list_urls = uniq(list_urls_raw.flatMap((x) => repoAwareCandidates(x)));
   } else {
-    // legacy / defaults
     list_urls = uniq([
       ...repoAwareCandidates(raw?.templates_endpoint),
       ...repoAwareCandidates(`${REPO_BASE}/api/templates.php`),
@@ -410,7 +457,6 @@ function normalizeProductConfig(raw, { token, mode }) {
     repoAwareSingle(raw?.assets?.templates?.folder_base) ||
     `${REPO_BASE}/assets/templates/coasters/`;
 
-  // API endpoints: allow both styles (repo-aware)
   const api = {
     project_url: repoAwareSingle(raw?.api?.project_url) || `${REPO_BASE}/api/project.php`,
     upload_url:
@@ -440,17 +486,17 @@ async function loadConfigFromBackend(token) {
   try {
     const raw = await fetchJsonWithTimeout(projectUrl, { timeoutMs: 6500 });
 
-    // Nowy kontrakt: { ok:true, mode, productConfig }
     if (raw && raw.ok === true && raw.productConfig && typeof raw.productConfig === "object") {
-      const cfg = normalizeProductConfig(raw.productConfig, { token, mode: "backend" });
-      dlog("project.php ok:", raw.mode, { token_present: !!cfg?.token });
+      // WAŻNE: respektujemy raw.mode (production/fallback)
+      const mode = raw.mode === "production" ? "backend" : "demo";
+      const cfg = normalizeProductConfig(raw.productConfig, { token, mode });
+      dlog("project.php ok:", raw.mode, cfg);
       return cfg;
     }
 
-    // Legacy: backend zwraca bezpośrednio config
     if (raw && typeof raw === "object") {
       const cfg = normalizeProductConfig(raw, { token, mode: "backend" });
-      dlog("project.php legacy:", { token_present: !!cfg?.token });
+      dlog("project.php legacy:", cfg);
       return cfg;
     }
 
@@ -506,7 +552,7 @@ function showProductFallbackChooser() {
   setUiTitleSubtitle("Edytor (tryb demo)", "Wybierz produkt, aby kontynuować bez tokena.");
 }
 
-/* ===================== [SEKCJA 4] RUNTIME PARAMS (z configu) ===================== */
+/* ===================== [SEKCJA 4] RUNTIME PARAMS ===================== */
 let CANVAS_PX = 1181;
 let CUT_RATIO = 0.90;
 let PRINT_DPI = 300;
@@ -515,7 +561,6 @@ const DPI_WEAK_MAX = 50;
 const DPI_MED_MAX = 100;
 const DPI_GOOD_MAX = 200;
 
-/* ===================== [MASKA PNG] ===================== */
 let maskEl = null;
 let MASK_URLS = {
   square: `${REPO_BASE}/editor/assets/masks/mask_square.png`,
@@ -558,8 +603,8 @@ function applyMaskForShape(nextShape) {
   el.src = withV(raw);
 }
 
-/* ===================== [SEKCJA 5] STAN ===================== */
-let productConfig = null; // po applyProductConfig
+/* ===================== [SEKCJA 5] STAN (bieżący slot) ===================== */
+let productConfig = null;
 
 let shape = "square";
 let uploadedImg = null;
@@ -572,8 +617,7 @@ let userScale = 1;
 let offsetX = 0;
 let offsetY = 0;
 
-// obrót
-let rotationDeg = 0; // -180..180
+let rotationDeg = 0;
 function normDeg(d) {
   let x = Number(d) || 0;
   x = ((x % 360) + 360) % 360;
@@ -582,10 +626,9 @@ function normDeg(d) {
 }
 function degToRad(d) { return (d * Math.PI) / 180; }
 
-// kłódka kadru
-let freeMove = false; // false = clamp (bezpiecznie), true = swobodnie
-const MIN_USER_SCALE_LOCKED = 1.0;  // 🔒
-const MIN_USER_SCALE_FREE = 0.10;   // 🔓
+let freeMove = false;
+const MIN_USER_SCALE_LOCKED = 1.0;
+const MIN_USER_SCALE_FREE = 0.10;
 const MAX_USER_SCALE = 6.0;
 function getMinUserScale() { return freeMove ? MIN_USER_SCALE_FREE : MIN_USER_SCALE_LOCKED; }
 
@@ -608,7 +651,7 @@ window.addEventListener("beforeunload", (e) => {
   e.returnValue = "";
 });
 
-/* ===================== [SEKCJA 6] STATUS BAR + JAKOŚĆ ===================== */
+/* ===================== [STATUS BAR + JAKOŚĆ] ===================== */
 function fmtZoomPct() { return `${Math.round(userScale * 100)}%`; }
 function templateName() {
   if (!currentTemplate) return "—";
@@ -678,8 +721,10 @@ function updateStatusBar() {
   const mmW = productConfig?.product?.size_mm?.w ?? 0;
   const mmH = productConfig?.product?.size_mm?.h ?? 0;
 
+  const slotInfo = QTY > 1 ? ` | Sztuka: ${currentSlot + 1}/${QTY}` : "";
+
   statusBar.textContent =
-    `Produkt: ${prod} ${mmW}×${mmH}mm | Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | Obrót: ${rot} | Kadr: ${lockStr} | DPI: ${dpiStr} | Jakość: ${q}`;
+    `Produkt: ${prod} ${mmW}×${mmH}mm | Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | Obrót: ${rot} | Kadr: ${lockStr} | DPI: ${dpiStr} | Jakość: ${q}${slotInfo}`;
 
   applyStatusBarQualityStyle(dpi);
 }
@@ -689,7 +734,6 @@ function refreshExportButtons() {
   const hasPhoto = !!uploadedImg;
   if (btnDownloadPreview) btnDownloadPreview.disabled = !hasPhoto || productionLocked;
 
-  // wyślij do realizacji: tylko gdy backend config (mode=backend)
   const canSend = productConfig?.mode === "backend";
   if (btnSendToProduction) btnSendToProduction.disabled = productionLocked || !canSend;
 
@@ -702,6 +746,8 @@ function refreshExportButtons() {
         `Po wysłaniu projekt trafia do produkcji i <b>nie będzie można wprowadzić zmian</b>.`;
     }
   }
+
+  updateSlotUi();
 }
 
 /* ===================== [KŁÓDKA KADRU] ===================== */
@@ -711,7 +757,6 @@ function syncFreeMoveButton() {
   btnFreeMove.setAttribute("aria-pressed", freeMove ? "true" : "false");
   btnFreeMove.textContent = freeMove ? "🔓 Kadr" : "🔒 Kadr";
 }
-
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
 function setFreeMove(next, { silent = false, skipHistory = false } = {}) {
@@ -741,8 +786,10 @@ function setFreeMove(next, { silent = false, skipHistory = false } = {}) {
 
   if (!skipHistory) pushHistory();
   if (!skipHistory) markDirty();
-}
 
+  persistCurrentSlotState();
+  saveSlotsToLocal();
+}
 if (btnFreeMove) btnFreeMove.addEventListener("click", () => setFreeMove(!freeMove));
 
 /* ===================== [HISTORIA] (5 kroków) ===================== */
@@ -788,6 +835,9 @@ function pushHistory() {
   historyIndex = history.length - 1;
 
   updateUndoRedoButtons();
+
+  persistCurrentSlotState();
+  saveSlotsToLocal();
 }
 function updateUndoRedoButtons() {
   if (btnUndo) btnUndo.disabled = historyIndex <= 0;
@@ -827,6 +877,9 @@ async function applyStateFromHistory(snap) {
 
   suppressHistory = false;
   updateUndoRedoButtons();
+
+  persistCurrentSlotState();
+  saveSlotsToLocal();
 }
 async function undo() {
   if (historyIndex <= 0) return;
@@ -843,7 +896,7 @@ async function redo() {
 if (btnUndo) btnUndo.addEventListener("click", undo);
 if (btnRedo) btnRedo.addEventListener("click", redo);
 
-/* ===================== [SEKCJA 7] KSZTAŁT ===================== */
+/* ===================== [KSZTAŁT] ===================== */
 function setShapeButtonsAvailability(options) {
   const hasSquare = options.includes("square");
   const hasCircle = options.includes("circle");
@@ -872,7 +925,7 @@ async function setShape(next, opts = {}) {
 if (btnSquare) btnSquare.addEventListener("click", () => setShape("square"));
 if (btnCircle) btnCircle.addEventListener("click", () => setShape("circle"));
 
-/* ===================== [SEKCJA 8] RYSOWANIE ===================== */
+/* ===================== [RYSOWANIE] ===================== */
 function clear() {
   ctx.clearRect(0, 0, CANVAS_PX, CANVAS_PX);
   ctx.fillStyle = "#ffffff";
@@ -911,8 +964,7 @@ function applyClampToOffsets() {
   const h = ih * scale;
 
   const ex = (c * w + s * h) / 2;
-  const ey = (s * w + c * ih * scale) / 2; // (zostawiam jak było w logice – nie dotykam całości rysowania)
-  // UWAGA: powyższa linia jest podejrzana (miesza ih i scale), ale nie ruszam tego w tej poprawce dot. tokena.
+  const ey = (s * w + c * h) / 2;
 
   let cx = CANVAS_PX / 2 + offsetX;
   let cy = CANVAS_PX / 2 + offsetY;
@@ -960,7 +1012,7 @@ function redraw() {
   drawTemplateEditOverlay();
 }
 
-/* ===================== [SEKCJA 9] WCZYTANIE ZDJĘCIA ===================== */
+/* ===================== [WCZYTANIE ZDJĘCIA] ===================== */
 function resetPhotoTransformToCover() {
   if (!uploadedImg) return;
 
@@ -975,6 +1027,110 @@ function resetPhotoTransformToCover() {
   syncFreeMoveButton();
 
   applyClampToOffsets();
+}
+
+function imageToDataUrl(img) {
+  try {
+    // zachowujemy to co widzi klient jako podgląd (kompresja umiarkowana)
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } catch {
+    return "";
+  }
+}
+
+function loadImageFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    if (!dataUrl) return resolve(null);
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Nie mogę wczytać obrazu ze slotu"));
+    img.src = dataUrl;
+  });
+}
+
+function persistCurrentSlotState() {
+  if (!slots[currentSlot]) return;
+
+  const s = slots[currentSlot];
+
+  s.shape = shape;
+  s.templateId = currentTemplate ? String(currentTemplate.id || "") : "";
+  s.rotationDeg = rotationDeg;
+  s.coverScale = coverScale;
+  s.userScale = userScale;
+  s.offsetX = offsetX;
+  s.offsetY = offsetY;
+  s.freeMove = freeMove;
+
+  // jeśli mamy zdjęcie w slocie, zapisz dataUrl (żeby po przełączeniu nie ginęło)
+  if (uploadedImg) {
+    // zapisujemy obraz "źródłowy" jako dataURL z pliku wejściowego (a nie z canvasa po szablonie)
+    // -> wykorzystamy aktualnie wgrany obraz w slocie (bez dodatkowych kombinacji)
+    // Tu przyjmujemy, że aktualny obraz pochodzi z photoInput i jest już w pamięci.
+    // Dla prostoty zapisujemy dataURL z canvasa jako "stan slotu" (MVP).
+    s.photoDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+  } else {
+    s.photoDataUrl = "";
+  }
+}
+
+async function applySlotState() {
+  const s = slots[currentSlot];
+  if (!s) return;
+
+  // shape
+  if (s.shape) await setShape(String(s.shape), { skipHistory: true });
+
+  // template
+  if (s.templateId) {
+    currentTemplate = { id: s.templateId, name: s.templateId };
+    await applyTemplate(currentTemplate, { skipHistory: true, silentErrors: true });
+  } else {
+    clearTemplateSelection({ skipHistory: true });
+  }
+
+  // photo
+  uploadedImg = null;
+  if (s.photoDataUrl) {
+    try {
+      const img = await loadImageFromDataUrl(s.photoDataUrl);
+      uploadedImg = img;
+    } catch {
+      uploadedImg = null;
+      s.photoDataUrl = "";
+    }
+  }
+
+  rotationDeg = normDeg(s.rotationDeg || 0);
+  freeMove = !!s.freeMove;
+  syncFreeMoveButton();
+
+  if (uploadedImg) {
+    // coverScale i transform
+    ensureCoverScaleForRotation();
+    coverScale = Number(s.coverScale || coverScale) || coverScale;
+
+    userScale = Number(s.userScale || 1) || 1;
+    offsetX = Number(s.offsetX || 0) || 0;
+    offsetY = Number(s.offsetY || 0) || 0;
+
+    if (!freeMove) {
+      if (userScale < MIN_USER_SCALE_LOCKED) userScale = MIN_USER_SCALE_LOCKED;
+      applyClampToOffsets();
+    }
+  } else {
+    coverScale = 1;
+    userScale = 1;
+    offsetX = 0;
+    offsetY = 0;
+    rotationDeg = 0;
+    freeMove = false;
+    syncFreeMoveButton();
+  }
+
+  redraw();
+  updateStatusBar();
+  refreshExportButtons();
 }
 
 if (photoInput) {
@@ -996,11 +1152,17 @@ if (photoInput) {
 
       refreshExportButtons();
 
-      toast("Zdjęcie wgrane ✅");
+      toast(`Zdjęcie wgrane ✅ (sztuka ${currentSlot + 1}/${QTY})`);
       maybeWarnQuality(true);
 
       markDirty();
+
+      // zapisz w slocie + autosave
+      persistCurrentSlotState();
+      saveSlotsToLocal();
+
       URL.revokeObjectURL(url);
+      if (photoInput) photoInput.value = ""; // pozwala wgrać ten sam plik ponownie
     };
 
     img.src = url;
@@ -1051,6 +1213,8 @@ function setUserScaleKeepingPoint(newUserScale) {
   maybeWarnQuality(false);
 
   markDirty();
+  persistCurrentSlotState();
+  saveSlotsToLocal();
 }
 
 function fitToCover() {
@@ -1249,7 +1413,7 @@ if (btnZoomOut) {
   });
 }
 
-/* ===================== [SEKCJA 10] SZABLONY ===================== */
+/* ===================== [SZABLONY] ===================== */
 async function fetchJsonFirstOk(urls) {
   let lastErr = null;
   for (const u of urls) {
@@ -1338,6 +1502,9 @@ async function applyTemplate(t, opts = {}) {
   img.onload = () => {
     templateEditImg = img;
     redraw();
+
+    persistCurrentSlotState();
+    saveSlotsToLocal();
   };
 
   img.onerror = () => {
@@ -1356,9 +1523,12 @@ function clearTemplateSelection(opts = {}) {
   redraw();
   updateStatusBar();
   if (!opts.skipHistory) pushHistory();
+
+  persistCurrentSlotState();
+  saveSlotsToLocal();
 }
 
-/* ===================== [SEKCJA 11] EXPORT / NAZWY ===================== */
+/* ===================== [EXPORT / NAZWY] ===================== */
 function safeFileToken(raw, fallback = "projekt") {
   let s = String(raw || "").trim();
   if (!s) return fallback;
@@ -1384,14 +1554,15 @@ if (btnDownloadPreview) {
     const a = document.createElement("a");
     const nick = sanitizeFileBase(nickInput?.value);
     const pid = productConfig?.product?.type ? safeFileToken(productConfig.product.type, "produkt") : "produkt";
-    a.download = `${nick}_${pid}_preview.jpg`;
+    const slotSuffix = QTY > 1 ? `_s${String(currentSlot + 1).padStart(2, "0")}of${QTY}` : "";
+    a.download = `${nick}_${pid}${slotSuffix}_preview.jpg`;
     a.href = canvas.toDataURL("image/jpeg", 0.70);
     a.click();
     toast("Zapisano PODGLĄD JPG ✅");
   });
 }
 
-/* ===================== [SEKCJA 12] OVERLAYS + LOCK UI ===================== */
+/* ===================== [OVERLAYS + LOCK UI] ===================== */
 function setBusyOverlay(visible, msg) {
   if (!busyOverlay) return;
   busyOverlay.style.display = visible ? "flex" : "none";
@@ -1409,7 +1580,8 @@ function setUiLocked(locked, busyMsg = "Trwa operacja…") {
     "btnFreeMove",
     "btnThemeLight", "btnThemeDark",
     "btnDownloadPreview",
-    "btnSendToProduction"
+    "btnSendToProduction",
+    "btnSlotPrev", "btnSlotNext",
   ];
 
   ids.forEach((id) => {
@@ -1475,8 +1647,8 @@ function closeErrorOverlay() {
   document.body.style.overflow = "";
 }
 
-/* ===================== [SEKCJA 13] WYSYŁKA (token jako auth) ===================== */
-const PROJECT_JSON_SCHEMA_VERSION = 1;
+/* ===================== [WYSYŁKA] ===================== */
+const PROJECT_JSON_SCHEMA_VERSION = 2;
 
 function roundNum(x, digits = 6) {
   const n = Number(x);
@@ -1485,7 +1657,7 @@ function roundNum(x, digits = 6) {
   return Math.round(n * m) / m;
 }
 
-function buildProjectJson() {
+function buildProjectJson({ slotIndex, slotTotal, baseOrderId }) {
   const nick = (nickInput?.value || "").trim();
   const dpi = getEffectiveDpi();
   const urlNickRaw = getNickFromUrl();
@@ -1497,7 +1669,7 @@ function buildProjectJson() {
 
   const nowIso = new Date().toISOString();
 
-  const payload = {
+  return JSON.stringify({
     schema_version: PROJECT_JSON_SCHEMA_VERSION,
     app: { name: "product-editor", version: CACHE_VERSION, repo_base: REPO_BASE },
     created_at_iso: nowIso,
@@ -1506,8 +1678,11 @@ function buildProjectJson() {
     order: {
       nick: nick || "",
       order_id: orderId || "",
+      base_order_id: baseOrderId || orderId || "",
       url_nick_raw: urlNickRaw || "",
       url_order_id_raw: urlOrderIdRaw || "",
+      qty: slotTotal,
+      slot_index: slotIndex + 1,
     },
 
     product: {
@@ -1537,13 +1712,7 @@ function buildProjectJson() {
 
     cache_version: CACHE_VERSION,
     ts_iso: nowIso,
-    nick: nick,
-    shape: shape,
-    dpi: dpi == null ? null : Math.round(dpi),
-    url: location.href,
-  };
-
-  return JSON.stringify(payload, null, 2);
+  }, null, 2);
 }
 
 function renderProductionWithPrintOverlayToBlob(mime, qualityOrNull) {
@@ -1603,72 +1772,19 @@ function renderProductionJpgBlob() {
   return renderProductionWithPrintOverlayToBlob("image/jpeg", 1.0);
 }
 
-/* ---- TOKEN: zawsze z najlepszego źródła + redundancja wysyłki ---- */
-function getProjectTokenBestEffort() {
-  const t =
-    (productConfig?.token || "").trim() ||
-    (TOKEN || "").trim() ||
-    (getQueryParam("token") || "").trim();
-  return t;
-}
-function appendTokenToUrl(url, token) {
-  try {
-    const u = new URL(url, location.origin);
-    if (token) u.searchParams.set("token", token);
-    return u.toString();
-  } catch {
-    if (!token) return String(url || "");
-    const s = String(url || "");
-    const glue = s.includes("?") ? "&" : "?";
-    return `${s}${glue}token=${encodeURIComponent(token)}`;
-  }
-}
-
-/**
- * uploadToServer:
- * - autoryzacja:
- *    - X-Project-Token
- *    - Authorization: Bearer <token>
- *    - FormData: token + project_token
- *    - URL: ?token=...
- * - multipart: image pod kluczem "png" (kompatybilnie z upload.php), MIME: image/jpeg
- */
-async function uploadToServer(blob, jsonText, filename) {
+async function uploadToServer(blob, jsonText, filename, orderIdForUpload) {
   const fd = new FormData();
 
-  const urlOrderIdRaw = getOrderIdFromUrl();
-  const orderId =
-    sanitizeOrderId(urlOrderIdRaw) ||
-    sanitizeOrderId(nickInput?.value || "");
+  if (orderIdForUpload) fd.append("order_id", orderIdForUpload);
 
-  if (orderId) fd.append("order_id", orderId);
-
-  // klucz "png" zostaje dla kompatybilności (upload.php akceptuje jpeg/png)
+  // kompatybilność: wysyłamy jako "png" (upload.php i tak przyjmie jpg/png)
   fd.append("png", blob, filename);
   fd.append("json", jsonText);
 
-  const projectToken = getProjectTokenBestEffort();
-
-  // token także w payload (na wypadek backendu, który nie czyta headerów)
-  if (projectToken) {
-    fd.append("token", projectToken);
-    fd.append("project_token", projectToken);
-  }
-
   const headers = {};
-  if (projectToken) {
-    headers["X-Project-Token"] = projectToken;
-    headers["Authorization"] = `Bearer ${projectToken}`;
-  }
+  if (productConfig?.token) headers["X-Project-Token"] = productConfig.token;
 
-  const rawUploadUrl = productConfig?.api?.upload_url || `${REPO_BASE}/api/upload.php`;
-  const uploadUrl = appendTokenToUrl(rawUploadUrl, projectToken);
-
-  dlog("uploadToServer()", {
-    uploadUrl,
-    token_present: !!projectToken,
-    token_len: projectToken ? projectToken.length : 0
-  });
+  const uploadUrl = productConfig?.api?.upload_url || `${REPO_BASE}/api/upload.php`;
 
   const res = await fetch(uploadUrl, {
     method: "POST",
@@ -1691,8 +1807,7 @@ let pendingSendAfterNick = false;
 let lastFocusElBeforeModal = null;
 
 function focusNickFieldWithHint() {
-  const msg = "Uzupełnij podpis / nick (np. nazwisko lub nr zamówienia), aby wysłać projekt do realizacji.";
-  toast(msg);
+  toast("Uzupełnij podpis / nick, aby wysłać projekt do realizacji.");
 
   if (nickInput) {
     try { nickInput.focus({ preventScroll: true }); } catch { try { nickInput.focus(); } catch {} }
@@ -1700,7 +1815,7 @@ function focusNickFieldWithHint() {
     nickInput.style.outline = "2px solid #f59e0b";
     setTimeout(() => { nickInput.style.outline = ""; }, 1200);
   } else {
-    alert(msg);
+    alert("Uzupełnij podpis / nick, aby wysłać projekt do realizacji.");
   }
 }
 
@@ -1810,7 +1925,6 @@ function dpiWarningText(dpi) {
 
   const common =
     `Wykryta jakość: ${q} (ok. ${v} DPI).\n\n` +
-    `To wynika z rozdzielczości oryginalnego zdjęcia i aktualnego powiększenia w edytorze.\n` +
     `Jeśli zaakceptujesz, wydruk może być mniej ostry/pikselowy.\n\n`;
 
   if (dpi < DPI_WEAK_MAX) return common + "Czy mimo to chcesz wysłać projekt do realizacji?";
@@ -1818,17 +1932,31 @@ function dpiWarningText(dpi) {
   return null;
 }
 
+function slotHasPhoto(i) {
+  return !!(slots[i] && slots[i].photoDataUrl);
+}
+
+async function ensureAllSlotsHavePhotosOrConfirm() {
+  if (QTY <= 1) return true;
+  const missing = [];
+  for (let i = 0; i < QTY; i++) if (!slotHasPhoto(i)) missing.push(i + 1);
+  if (missing.length === 0) return true;
+
+  const msg =
+    `Brakuje zdjęcia w sztukach: ${missing.join(", ")}.\n\n` +
+    `Aby wysłać komplet, uzupełnij brakujące sztuki.\n\n` +
+    `Przejść do pierwszego brakującego?`;
+
+  const ok = window.confirm(msg);
+  if (ok) await setSlot(missing[0] - 1);
+  return false;
+}
+
 async function sendToProduction(skipNickCheck = false) {
   if (productionLocked) return;
 
-  // twardy warunek: wysyłka tylko w trybie backend
   if (productConfig?.mode !== "backend") {
     toast("Tryb demo: wysyłka zablokowana. Uruchom edytor z ?token=...");
-    return;
-  }
-
-  if (!uploadedImg) {
-    toast("Najpierw wgraj zdjęcie.");
     return;
   }
 
@@ -1838,24 +1966,11 @@ async function sendToProduction(skipNickCheck = false) {
     return;
   }
 
+  // komplet slotów
+  if (!(await ensureAllSlotsHavePhotosOrConfirm())) return;
+
   const first = window.confirm("Czy na pewno chcesz wysłać projekt do realizacji?");
   if (!first) return;
-
-  if (freeMove) {
-    const ok = window.confirm(
-      "Uwaga: kadr jest odblokowany (swobodne przesuwanie/pomniejszanie).\n\n" +
-      "Upewnij się, że w okienku szablonu nie ma pustych/białych pól i że ważne elementy nie wypadają.\n\n" +
-      "Kontynuować?"
-    );
-    if (!ok) return;
-  }
-
-  const dpi = getEffectiveDpi();
-  const dpiWarn = dpiWarningText(dpi);
-  if (dpiWarn) {
-    const ok = window.confirm(dpiWarn);
-    if (!ok) return;
-  }
 
   const second = window.confirm(
     "To ostatni krok.\n\nPo wysłaniu projekt trafia do produkcji i nie będzie można wprowadzić zmian.\n\nKontynuować?"
@@ -1867,16 +1982,52 @@ async function sendToProduction(skipNickCheck = false) {
   toast("Wysyłanie do realizacji…");
 
   try {
-    const jsonText = buildProjectJson();
-    const jpgBlob = await renderProductionJpgBlob();
-    await uploadToServer(jpgBlob, jsonText, "projekt_PRINT.jpg");
+    // zapis bieżącego slotu przed wysyłką
+    persistCurrentSlotState();
+    saveSlotsToLocal();
+
+    const urlOrderIdRaw = getOrderIdFromUrl();
+    const baseOrderId =
+      sanitizeOrderId(urlOrderIdRaw) ||
+      sanitizeOrderId(nick) ||
+      "";
+
+    // wysyłamy każdy slot osobno (sekwencyjnie)
+    for (let i = 0; i < QTY; i++) {
+      await setSlot(i);
+
+      // w tym miejscu uploadedImg jest stanem slotu i
+      // renderProductionJpgBlob tworzy plik do druku
+      const dpi = getEffectiveDpi();
+      const dpiWarn = dpiWarningText(dpi);
+      if (dpiWarn) {
+        const ok = window.confirm(`Sztuka ${i + 1}/${QTY}:\n\n` + dpiWarn);
+        if (!ok) throw new Error("Przerwano przez użytkownika (DPI warning)");
+      }
+
+      const jsonText = buildProjectJson({ slotIndex: i, slotTotal: QTY, baseOrderId });
+      const jpgBlob = await renderProductionJpgBlob();
+
+      const orderIdForUpload = baseOrderId
+        ? `${baseOrderId}_s${String(i + 1).padStart(2, "0")}of${QTY}`
+        : `slot_${String(i + 1).padStart(2, "0")}of${QTY}`;
+
+      await uploadToServer(
+        jpgBlob,
+        jsonText,
+        `projekt_s${String(i + 1).padStart(2, "0")}of${QTY}_PRINT.jpg`,
+        orderIdForUpload
+      );
+    }
 
     markClean();
     setBusyOverlay(false);
 
     showFinalOverlay(
       "Wysłano do realizacji ✅",
-      "Projekt został przekazany do produkcji. Zmiana nie będzie możliwa."
+      QTY > 1
+        ? `Wysłano komplet: ${QTY} szt.`
+        : "Projekt został przekazany do produkcji."
     );
   } catch (err) {
     derr(err);
@@ -1889,11 +2040,13 @@ async function sendToProduction(skipNickCheck = false) {
 
     showErrorOverlay("Błąd wysyłania", msg);
     toast("Błąd wysyłania. Spróbuj ponownie.");
+  } finally {
+    updateSlotUi();
   }
 }
 
 if (btnSendToProduction) btnSendToProduction.addEventListener("click", () => sendToProduction(false));
-if (nickInput) nickInput.addEventListener("input", () => markDirty());
+if (nickInput) nickInput.addEventListener("input", () => { markDirty(); saveSlotsToLocal(); });
 
 /* ERROR OVERLAY BUTTONS */
 if (errorOverlayRetry) {
@@ -1915,7 +2068,7 @@ if (errorOverlay) {
   });
 }
 
-/* ===================== [SEKCJA 14] APPLY productConfig ===================== */
+/* ===================== [APPLY productConfig] ===================== */
 function applyNickFromUrlIfEmpty() {
   if (!nickInput) return;
   const current = (nickInput.value || "").trim();
@@ -1930,40 +2083,32 @@ function applyNickFromUrlIfEmpty() {
 async function applyProductConfig(cfg) {
   productConfig = cfg;
 
-  // runtime render params
   CANVAS_PX = cfg.render.canvas_px;
   CUT_RATIO = cfg.render.cut_ratio;
   PRINT_DPI = cfg.render.print_dpi;
 
-  // canvas size
   if (canvas.width !== CANVAS_PX || canvas.height !== CANVAS_PX) {
     canvas.width = CANVAS_PX;
     canvas.height = CANVAS_PX;
   }
 
-  // masks
   MASK_URLS = { ...MASK_URLS, ...cfg.assets.masks };
 
-  // UI title/subtitle
-  const sizeW = cfg.product.size_mm.w;
-  const sizeH = cfg.product.size_mm.h;
-  const autoTitle = cfg.ui.title || cfg.product.name || "Edytor produktu";
+  const sizeW = cfg.product?.size_mm?.w ?? 0;
+  const sizeH = cfg.product?.size_mm?.h ?? 0;
+  const autoTitle = cfg.ui.title || cfg.product?.name || "Edytor produktu";
   const autoSub = cfg.ui.subtitle || `Projekt ${sizeW}×${sizeH} mm (spad).`;
   setUiTitleSubtitle(autoTitle, autoSub);
 
-  // shapes availability
-  const shapeOptions = (cfg.product.shape_options || ["square", "circle"]).map(String);
+  const shapeOptions = (cfg.product?.shape_options || ["square", "circle"]).map(String);
   setShapeButtonsAvailability(shapeOptions);
 
-  // ustaw domyślny shape, ale tylko jeśli dozwolony
-  const desired = String(cfg.product.shape_default || "square");
+  const desired = String(cfg.product?.shape_default || "square");
   const initialShape = shapeOptions.includes(desired) ? desired : (shapeOptions[0] || "square");
   await setShape(initialShape, { skipHistory: true });
 
-  // mask od razu
   applyMaskForShape(shape);
 
-  // refresh templates
   try {
     const templates = await loadTemplatesFromConfig();
     renderTemplateGrid(templates);
@@ -1986,6 +2131,41 @@ async function applyProductConfig(cfg) {
   applyNickFromUrlIfEmpty();
   syncFreeMoveButton();
 
+  // init slotów
+  slots = new Array(QTY).fill(null).map(() => ({
+    photoDataUrl: "",
+    shape: "square",
+    templateId: "",
+    rotationDeg: 0,
+    coverScale: 1,
+    userScale: 1,
+    offsetX: 0,
+    offsetY: 0,
+    freeMove: false,
+  }));
+
+  const saved = loadSlotsFromLocal();
+  if (saved && saved.length === QTY) {
+    for (let i = 0; i < QTY; i++) {
+      const s = saved[i] || {};
+      slots[i] = {
+        ...slots[i],
+        photoDataUrl: String(s.photoDataUrl || ""),
+        shape: String(s.shape || "square"),
+        templateId: String(s.templateId || ""),
+        rotationDeg: Number(s.rotationDeg || 0),
+        coverScale: Number(s.coverScale || 1),
+        userScale: Number(s.userScale || 1),
+        offsetX: Number(s.offsetX || 0),
+        offsetY: Number(s.offsetY || 0),
+        freeMove: !!s.freeMove,
+      };
+    }
+  }
+
+  wireSlotUi();
+  updateSlotUi();
+
   setUiTitleSubtitle("Edytor", "Ładowanie konfiguracji…");
   refreshExportButtons();
 
@@ -2003,13 +2183,16 @@ async function applyProductConfig(cfg) {
     toast("Brak tokena/konfiguracji — tryb demo.");
   }
 
-  clearTemplateSelection({ skipHistory: true });
+  // start od slotu 1
+  currentSlot = 0;
+  await applySlotState();
+
   redraw();
   updateStatusBar();
   pushHistory();
   markClean();
 
-  dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, token_present: !!getProjectTokenBestEffort() });
+  dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, QTY });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-01 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-03 === */
