@@ -1,5 +1,5 @@
 /* editor/style.css */
-/* FILE_VERSION: 2026-02-11-18 */
+/* FILE_VERSION: 2026-02-11-19 */
 /* === THEME VARS === */
 :root{
   --bg: #0b0f14;
@@ -72,7 +72,7 @@ body {
   padding: 16px;
 
   /* ZMIENIONE (sygnał załadowania nowych styli) */
-  border-top: 6px solid #22c55e;
+  border-top: 6px solid #a855f7;
 }
 
 .header {
@@ -191,6 +191,26 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* === PASEK KOMPLETNOŚCI (nad "Sztuki") === */
+.completionBanner{
+  border-radius: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  font-weight: 800;
+  font-size: 12px;
+  line-height: 1.25;
+}
+.completionBanner--need{
+  background: #ffe8e8;
+  border-color: #f5b5b5;
+  color: #7f1d1d;
+}
+.completionBanner--ok{
+  background: #e9fbe9;
+  border-color: #9bd59b;
+  color: #14532d;
 }
 
 .card {
@@ -409,4 +429,4 @@ select:disabled {
   .templateGrid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-11-18 === */
+/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-11-19 === */
