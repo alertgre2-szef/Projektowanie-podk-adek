@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-07b
+ * VERSION: 2026-02-11-08
  */
 
 /* ===================== [SEKCJA 1] UTIL + DEBUG ===================== */
