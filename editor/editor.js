@@ -1984,7 +1984,7 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-/* ===================== [SEND] ===================== */
+/* ========START======== [SEKCJA SEND] WYSYŁKA KOMPLETU + ARKUSZ ========START======== */
 function dpiWarningText(dpi) {
   if (dpi == null) return null;
 
@@ -2073,7 +2073,10 @@ async function sendToProduction(skipNickCheck = false) {
 
     const nickBase = sanitizeFileBase(nick || baseOrderId || "projekt");
 
-    // 1) wysyłamy sloty jako osobne pliki nick_01.jpg, nick_02.jpg, ...
+    // KLUCZ: jeden wspólny order_id dla wszystkich uploadów => jeden katalog na serwerze
+    const commonOrderIdForUpload = baseOrderId || nickBase || "projekt";
+
+    // 1) sloty: nick_01.jpg, nick_02.jpg, ...
     const slotPrintBlobs = [];
 
     for (let i = 0; i < QTY; i++) {
@@ -2086,25 +2089,22 @@ async function sendToProduction(skipNickCheck = false) {
         if (!ok) throw new Error("Przerwano przez użytkownika (DPI warning)");
       }
 
-      const jsonText = buildProjectJson({ slotIndex: i, slotTotal: QTY, baseOrderId });
+      const jsonText = buildProjectJson({ slotIndex: i, slotTotal: QTY, baseOrderId: commonOrderIdForUpload });
       const jpgBlob = await renderProductionJpgBlob();
       slotPrintBlobs.push(jpgBlob);
 
       const fileBase = `${nickBase}_${String(i + 1).padStart(2, "0")}`;
-      const orderIdForUpload = baseOrderId
-        ? `${baseOrderId}_s${String(i + 1).padStart(2, "0")}of${QTY}`
-        : `slot_${String(i + 1).padStart(2, "0")}of${QTY}`;
 
       await uploadToServer(
         jpgBlob,
         jsonText,
         `${fileBase}.jpg`,
-        orderIdForUpload,
+        commonOrderIdForUpload,
         fileBase
       );
     }
 
-    // 2) dodatkowo arkusz 2×N (dla ułatwienia druku)
+    // 2) arkusz 2×N: trafia do TEGO SAMEGO katalogu (ten sam order_id)
     if (QTY > 1) {
       const cols = 2;
       const rows = Math.ceil(QTY / 2);
@@ -2117,8 +2117,13 @@ async function sendToProduction(skipNickCheck = false) {
           schema_version: 1,
           type: "coaster_sheet",
           app_version: CACHE_VERSION,
-          order: { base_order_id: baseOrderId || "", nick: nick || "", qty: QTY },
-          layout: { cols, rows, cell_mm: { w: 100, h: 100 }, sheet_mm: { w: cols * 100, h: rows * 100 } },
+          order: { base_order_id: commonOrderIdForUpload, nick: nick || "", qty: QTY },
+          layout: {
+            cols,
+            rows,
+            cell_mm: { w: 100, h: 100 },
+            sheet_mm: { w: cols * 100, h: rows * 100 },
+          },
           files: Array.from({ length: QTY }).map((_, idx) => ({
             slot: idx + 1,
             file_base: `${nickBase}_${String(idx + 1).padStart(2, "0")}`,
@@ -2129,7 +2134,7 @@ async function sendToProduction(skipNickCheck = false) {
           sheetBlob,
           sheetJson,
           `${sheetBase}.jpg`,
-          baseOrderId ? `${baseOrderId}_SHEET` : "SHEET",
+          commonOrderIdForUpload,
           sheetBase
         );
       } catch (e) {
@@ -2184,6 +2189,7 @@ if (errorOverlay) {
     if (e.target === errorOverlay) closeErrorOverlay();
   });
 }
+/* =========END========= [SEKCJA SEND] WYSYŁKA KOMPLETU + ARKUSZ =========END========= */
 
 /* ===================== [APPLY productConfig] ===================== */
 function applyNickFromUrlIfEmpty() {
