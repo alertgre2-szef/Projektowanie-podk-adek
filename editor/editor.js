@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-08
+ * VERSION: 2026-02-11-09
  */
 
 /* ===================== [SEKCJA 1] UTIL + DEBUG ===================== */
@@ -280,14 +280,21 @@ async function setSlot(index) {
   const next = Math.max(0, Math.min(QTY - 1, index));
   if (next === currentSlot) return;
 
+  // domknij ewentualny pinch/drag zanim zapiszemy
+  commitGestureIfActive();
+
   persistCurrentSlotState();
   saveSlotsToLocal();
 
   currentSlot = next;
 
-  await applySlotState();
+  // sekwencja chroniąca przed "dokończeniem" starego applySlotState po zmianie slotu
+  const mySeq = ++slotApplySeq;
+
+  await applySlotState(mySeq);
   updateSlotUi();
 }
+
 
 function wireSlotUi() {
   const els = slotUiEls();
@@ -1076,15 +1083,26 @@ function persistCurrentSlotState() {
   if (!uploadedImg) s.photoDataUrl = "";
 }
 
-async function applySlotState() {
-  const s = slots[currentSlot];
+async function applySlotState(seq = 0) {
+  const slotIndex = currentSlot;
+  const s = slots[slotIndex];
   if (!s) return;
 
+  // jeśli ktoś uruchomił nowsze przełączenie slotu, przerwij
+  if (seq && seq !== slotApplySeq) return;
+
+
   if (s.shape) await setShape(String(s.shape), { skipHistory: true });
+  if (seq && seq !== slotApplySeq) return;
+if (slotIndex !== currentSlot) return;
+
 
   if (s.templateId) {
     currentTemplate = { id: s.templateId, name: s.templateId };
     await applyTemplate(currentTemplate, { skipHistory: true, silentErrors: true });
+    if (seq && seq !== slotApplySeq) return;
+if (slotIndex !== currentSlot) return;
+
   } else {
     clearTemplateSelection({ skipHistory: true });
   }
@@ -1093,7 +1111,10 @@ async function applySlotState() {
   if (s.photoDataUrl) {
     try {
       const img = await loadImageFromDataUrl(s.photoDataUrl);
-      uploadedImg = img;
+if (seq && seq !== slotApplySeq) return;
+if (slotIndex !== currentSlot) return;
+uploadedImg = img;
+
     } catch {
       uploadedImg = null;
       s.photoDataUrl = "";
@@ -1265,6 +1286,19 @@ let pinchStartScale = 1;
 
 let gestureActive = false;
 let gestureMoved = false;
+
+let slotApplySeq = 0;
+
+function commitGestureIfActive() {
+  if (!gestureActive) return;
+  if (gestureMoved) {
+    pushHistory();
+    markDirty();
+  }
+  gestureActive = false;
+  gestureMoved = false;
+}
+
 
 function distance(a, b) {
   const dx = a.x - b.x;
@@ -2339,4 +2373,4 @@ async function applyProductConfig(cfg) {
   dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, QTY });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-07b === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-09 === */
