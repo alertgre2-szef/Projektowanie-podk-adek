@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer .
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-18
+ * VERSION: 2026-02-11-19
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-17";
+const CACHE_VERSION = "2026-02-11-19";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -197,7 +197,30 @@ function slotUiEls() {
     next: document.getElementById("btnSlotNext"),
     ind: document.getElementById("slotIndicator"),
     prog: document.getElementById("slotProgress"),
+    banner: document.getElementById("slotCompletionBanner"),
   };
+}
+
+function updateCompletionBanner(done, total) {
+  const els = slotUiEls();
+  if (!els.banner) return;
+
+  // pokazujemy tylko gdy jest multi-sztuk
+  if (QTY <= 1) {
+    els.banner.style.display = "none";
+    return;
+  }
+
+  els.banner.style.display = "";
+
+  const isOk = done >= total;
+
+  els.banner.classList.toggle("completionBanner--ok", isOk);
+  els.banner.classList.toggle("completionBanner--need", !isOk);
+
+  els.banner.textContent = isOk
+    ? "Projekty gotowe do wysyłki ✅"
+    : `Brakuje projektów — uzupełnij zdjęcia (${done}/${total}).`;
 }
 
 function updateSlotUi() {
@@ -206,6 +229,7 @@ function updateSlotUi() {
 
   if (QTY <= 1) {
     els.card.style.display = "none";
+    if (els.banner) els.banner.style.display = "none";
     return;
   }
   els.card.style.display = "";
@@ -214,6 +238,8 @@ function updateSlotUi() {
 
   const done = slots.filter(s => !!s.photoDataUrl).length;
   if (els.prog) els.prog.textContent = `Ukończono: ${done} / ${QTY}`;
+
+  updateCompletionBanner(done, QTY);
 
   const disabledByBusy = productionLocked || isApplyingSlot;
 
@@ -346,8 +372,6 @@ function wireSlotUi() {
 
 
 
-
-
 /* ========START======== [SEKCJA 05] DOM SELF-TEST + DOM QUERY =========START======== */
 const REQUIRED_IDS = [
   "canvas",
@@ -361,7 +385,9 @@ const REQUIRED_IDS = [
   "statusBar",
   "appTitleText",
   "appSubtitleText",
+  "slotCompletionBanner",
 ];
+
 function checkRequiredDom() {
   const missing = [];
   for (const id of REQUIRED_IDS) if (!document.getElementById(id)) missing.push(id);
@@ -444,6 +470,7 @@ const btnApplyProductSelect = document.getElementById("btnApplyProductSelect");
 
 canvas.style.touchAction = "none";
 /* ========END======== [SEKCJA 05] DOM SELF-TEST + DOM QUERY =========END======== */
+
 
 
 /* ========START======== [SEKCJA 06] WERSJA W UI =========START======== */
@@ -2381,13 +2408,12 @@ async function ensureAllSlotsHavePhotosOrConfirm() {
     ? `Brakuje zdjęcia w podkładce nr ${missing[0]}.`
     : `Brakuje zdjęcia w podkładkach nr ${joinNumsPolish(missing)}.`;
 
-  const msg =
+  window.alert(
     `${label}\n\n` +
-    `Aby wysłać komplet, uzupełnij brakujące podkładki.\n\n` +
-    `Przejść do pierwszego brakującego?`;
+    `Aby wysłać komplet, uzupełnij brakujące podkładki.\n` +
+    `Użyj przycisków „Poprzednia / Następna”.`
+  );
 
-  const ok = window.confirm(msg);
-  if (ok) await setSlot(missing[0] - 1);
   return false;
 }
 
@@ -2425,8 +2451,6 @@ async function sendToProduction(skipNickCheck = false) {
       "";
 
     const nickBase = sanitizeFileBase(nick || baseOrderId || "projekt");
-
-    // jeden wspólny order_id dla wszystkich uploadów => jeden katalog na serwerze
     const commonOrderIdForUpload = baseOrderId || nickBase || "projekt";
 
     const slotPrintBlobs = [];
@@ -2441,7 +2465,6 @@ async function sendToProduction(skipNickCheck = false) {
         if (!ok) {
           setUiLocked(false);
           toast("Wysyłka przerwana (ostrzeżenie jakości).");
-          closeErrorOverlay();
           updateSlotUi();
           return;
         }
@@ -2475,16 +2498,7 @@ async function sendToProduction(skipNickCheck = false) {
           type: "coaster_sheet",
           app_version: CACHE_VERSION,
           order: { base_order_id: commonOrderIdForUpload, nick: nick || "", qty: QTY },
-          layout: {
-            cols,
-            rows,
-            cell_mm: { w: 100, h: 100 },
-            sheet_mm: { w: cols * 100, h: rows * 100 },
-          },
-          files: Array.from({ length: QTY }).map((_, idx) => ({
-            slot: idx + 1,
-            file_base: `${nickBase}_${String(idx + 1).padStart(2, "0")}`,
-          })),
+          layout: { cols, rows },
         }, null, 2);
 
         await uploadToServer(
@@ -2496,7 +2510,7 @@ async function sendToProduction(skipNickCheck = false) {
         );
       } catch (e) {
         derr(e);
-        toast("Uwaga: nie udało się wygenerować arkusza (dodatkowego) — sloty wysłane poprawnie.");
+        toast("Uwaga: nie udało się wygenerować arkusza.");
       }
     }
 
@@ -2506,47 +2520,22 @@ async function sendToProduction(skipNickCheck = false) {
     showFinalOverlay(
       "Wysłano do realizacji ✅",
       QTY > 1
-        ? `Wysłano komplet: ${QTY} szt. (+ arkusz 2×${Math.ceil(QTY / 2)})`
+        ? `Wysłano komplet: ${QTY} szt.`
         : "Projekt został przekazany do produkcji."
     );
   } catch (err) {
     derr(err);
     setUiLocked(false);
-
-    const msg =
-      "Nie udało się wysłać projektu.\n\n" +
-      "Sprawdź połączenie z internetem i spróbuj ponownie.\n\n" +
-      (DEBUG ? `Szczegóły: ${String(err)}` : "");
-
-    showErrorOverlay("Błąd wysyłania", msg);
-    toast("Błąd wysyłania. Spróbuj ponownie.");
+    showErrorOverlay("Błąd wysyłania", "Spróbuj ponownie.");
+    toast("Błąd wysyłania.");
   } finally {
     updateSlotUi();
   }
 }
 
 if (btnSendToProduction) btnSendToProduction.addEventListener("click", () => sendToProduction(false));
-if (nickInput) nickInput.addEventListener("input", () => { markDirty(); saveSlotsToLocal(); });
-
-if (errorOverlayRetry) {
-  errorOverlayRetry.addEventListener("click", (e) => {
-    e.preventDefault();
-    closeErrorOverlay();
-    sendToProduction(false);
-  });
-}
-if (errorOverlayClose) {
-  errorOverlayClose.addEventListener("click", (e) => {
-    e.preventDefault();
-    closeErrorOverlay();
-  });
-}
-if (errorOverlay) {
-  errorOverlay.addEventListener("click", (e) => {
-    if (e.target === errorOverlay) closeErrorOverlay();
-  });
-}
 /* ========END======== [SEKCJA 24] SEND (KOMPLET + ARKUSZ) =========END======== */
+
 
 
 /* ========START======== [SEKCJA 25] APPLY productConfig =========START======== */
@@ -2577,15 +2566,18 @@ async function applyProductConfig(cfg) {
 
   const sizeW = cfg.product?.size_mm?.w ?? 0;
   const sizeH = cfg.product?.size_mm?.h ?? 0;
-  const autoTitle = cfg.ui.title || cfg.product?.name || "Edytor produktu";
-  const autoSub = cfg.ui.subtitle || `Projekt ${sizeW}×${sizeH} mm (spad).`;
+
+  const autoTitle = cfg.ui.title || "Edytor produktu";
+  const autoSub = cfg.ui.subtitle || `Projekt ${sizeW}×${sizeH} mm`;
+
   setUiTitleSubtitle(autoTitle, autoSub);
 
   const shapeOptions = (cfg.product?.shape_options || ["square", "circle"]).map(String);
   setShapeButtonsAvailability(shapeOptions);
 
   const desired = String(cfg.product?.shape_default || "square");
-  const initialShape = shapeOptions.includes(desired) ? desired : (shapeOptions[0] || "square");
+  const initialShape = shapeOptions.includes(desired) ? desired : shapeOptions[0];
+
   await setShape(initialShape, { skipHistory: true });
 
   applyMaskForShape(shape);
@@ -2595,14 +2587,15 @@ async function applyProductConfig(cfg) {
     renderTemplateGrid(templates);
   } catch (err) {
     derr(err);
-    if (templateGrid) templateGrid.innerHTML = `<div class="smallText">Nie udało się wczytać szablonów.</div>`;
     toast("Nie udało się wczytać szablonów.");
   }
 
   refreshExportButtons();
   updateStatusBar();
+  updateSlotUi();
 }
 /* ========END======== [SEKCJA 25] APPLY productConfig =========END======== */
+
 
 
 /* ========START======== [SEKCJA 26] INIT =========START======== */
@@ -2779,4 +2772,4 @@ async function applyProductConfig(cfg) {
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-18 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-19 === */
