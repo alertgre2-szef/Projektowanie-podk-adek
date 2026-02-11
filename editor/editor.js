@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-07
+ * VERSION: 2026-02-11-07b
  */
 
 /* ===================== [SEKCJA 1] UTIL + DEBUG ===================== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-07";
+const CACHE_VERSION = "2026-02-11-07b";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -2314,4 +2314,4 @@ async function applyProductConfig(cfg) {
   dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, QTY });
 })();
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-06 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-07b === */
