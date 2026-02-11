@@ -1,5 +1,5 @@
 /* editor/style.css */
-/* FILE_VERSION: 2026-02-10-03 */
+/* FILE_VERSION: 2026-02-11-18 */
 /* === THEME VARS === */
 :root{
   --bg: #0b0f14;
@@ -409,4 +409,4 @@ select:disabled {
   .templateGrid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-10-03 === */
+/* === KONIEC PLIKU — editor/style.css | FILE_VERSION: 2026-02-11-18 === */
