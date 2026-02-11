@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-11
+ * VERSION: 2026-02-11-12
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-11";
+const CACHE_VERSION = "2026-02-11-12";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -1122,6 +1122,11 @@ function persistCurrentSlotState() {
   if (!uploadedImg) s.photoDataUrl = "";
 }
 
+function persistAndSave() {
+  persistCurrentSlotState();
+  saveSlotsToLocal();
+}
+
 async function applySlotState(seq = 0) {
   const slotIndex = currentSlot;
   const s = slots[slotIndex];
@@ -1129,19 +1134,22 @@ async function applySlotState(seq = 0) {
 
   if (seq && seq !== slotApplySeq) return;
 
+  // 1) shape
   if (s.shape) await setShape(String(s.shape), { skipHistory: true });
   if (seq && seq !== slotApplySeq) return;
   if (slotIndex !== currentSlot) return;
 
+  // 2) template
   if (s.templateId) {
     currentTemplate = { id: s.templateId, name: s.templateId };
-    await applyTemplate(currentTemplate, { skipHistory: true, silentErrors: true });
+    await applyTemplate(currentTemplate, { skipHistory: true, silentErrors: true, slotIndex });
     if (seq && seq !== slotApplySeq) return;
     if (slotIndex !== currentSlot) return;
   } else {
     clearTemplateSelection({ skipHistory: true });
   }
 
+  // 3) photo
   uploadedImg = null;
   if (s.photoDataUrl) {
     try {
@@ -1155,6 +1163,7 @@ async function applySlotState(seq = 0) {
     }
   }
 
+  // 4) transform
   rotationDeg = normDeg(s.rotationDeg || 0);
   freeMove = !!s.freeMove;
   syncFreeMoveButton();
@@ -1216,9 +1225,7 @@ if (photoInput) {
         maybeWarnQuality(true);
 
         markDirty();
-
-        persistCurrentSlotState();
-        saveSlotsToLocal();
+        persistAndSave();
 
         if (photoInput) photoInput.value = "";
       } catch (err) {
@@ -1230,6 +1237,7 @@ if (photoInput) {
   });
 }
 /* ========END======== [SEKCJA 16] ZDJĘCIE (LOAD) + SLOT STATE =========END======== */
+
 
 
 /* ========START======== [SEKCJA 17] OBRÓT =========START======== */
@@ -1246,6 +1254,9 @@ function setRotation(nextDeg, opts = {}) {
 
   if (!opts.skipHistory) pushHistory();
   if (!opts.skipHistory) markDirty();
+
+  // KLUCZ: zapis stanu slotu po obrocie
+  persistAndSave();
 }
 function rotateBy(deltaDeg) {
   setRotation(rotationDeg + deltaDeg);
@@ -1278,8 +1289,7 @@ function setUserScaleKeepingPoint(newUserScale) {
   maybeWarnQuality(false);
 
   markDirty();
-  persistCurrentSlotState();
-  saveSlotsToLocal();
+  persistAndSave();
 }
 
 function fitToCover() {
@@ -1297,6 +1307,9 @@ function fitToCover() {
   toast("Dopasowano kadr");
   maybeWarnQuality(false);
   markDirty();
+
+  // KLUCZ: zapis po fit
+  persistAndSave();
 }
 
 function centerPhoto() {
@@ -1311,6 +1324,9 @@ function centerPhoto() {
   pushHistory();
   toast("Wyśrodkowano");
   markDirty();
+
+  // KLUCZ: zapis po center
+  persistAndSave();
 }
 
 let isDragging = false;
@@ -1329,6 +1345,8 @@ function commitGestureIfActive() {
   if (gestureMoved) {
     pushHistory();
     markDirty();
+    // KLUCZ: zapis po zakończeniu gestu (gdy zmieniło)
+    persistAndSave();
   }
   gestureActive = false;
   gestureMoved = false;
@@ -1424,6 +1442,8 @@ function endPointer(e) {
       if (gestureMoved) {
         pushHistory();
         markDirty();
+        // KLUCZ: zapis po końcu drag/pinch
+        persistAndSave();
       }
       gestureActive = false;
       gestureMoved = false;
@@ -1457,6 +1477,8 @@ function wheelHistoryCommit() {
   wheelTimer = window.setTimeout(() => {
     pushHistory();
     markDirty();
+    // KLUCZ: zapis po wheel-zoom commit
+    persistAndSave();
     wheelTimer = 0;
   }, 180);
 }
@@ -1470,6 +1492,7 @@ if (btnZoomIn) {
     setUserScaleKeepingPoint(userScale * 1.12);
     pushHistory();
     markDirty();
+    persistAndSave();
   });
 }
 if (btnZoomOut) {
@@ -1484,12 +1507,16 @@ if (btnZoomOut) {
     setUserScaleKeepingPoint(userScale / 1.12);
     pushHistory();
     markDirty();
+    persistAndSave();
   });
 }
 /* ========END======== [SEKCJA 18] DRAG + ZOOM (GESTY) =========END======== */
 
 
+
 /* ========START======== [SEKCJA 19] SZABLONY =========START======== */
+let templateReqSeq = 0;
+
 async function fetchJsonFirstOk(urls) {
   let lastErr = null;
   for (const u of urls) {
@@ -1547,6 +1574,7 @@ function renderTemplateGrid(templates) {
       item.onclick = () => {
         clearTemplateSelection();
         markDirty();
+        persistAndSave();
       };
       templateGrid.appendChild(item);
       return;
@@ -1559,11 +1587,17 @@ function renderTemplateGrid(templates) {
 
     item.onclick = async () => {
       currentTemplate = t;
-      await applyTemplate(t);
+
+      // KLUCZ: zapisz templateId natychmiast (nawet jeśli edit.png ładuje się chwilę)
+      persistAndSave();
+
+      await applyTemplate(t, { slotIndex: currentSlot });
+
       updateStatusBar();
       pushHistory();
       toast(`Wybrano szablon: ${templateName()}`);
       markDirty();
+      persistAndSave();
     };
 
     templateGrid.appendChild(item);
@@ -1571,26 +1605,38 @@ function renderTemplateGrid(templates) {
 }
 
 async function applyTemplate(t, opts = {}) {
+  const mySeq = ++templateReqSeq;
+  const startedSlot = Number.isFinite(opts?.slotIndex) ? opts.slotIndex : currentSlot;
+  const startedTemplateId = String(t?.id || "");
+
   const url = withV(templateFolderUrl(t.id) + "edit.png");
   const img = new Image();
   img.crossOrigin = "anonymous";
 
-  img.onload = () => {
-    templateEditImg = img;
-    redraw();
+  return await new Promise((resolve) => {
+    img.onload = () => {
+      // Guard: nie pozwól, by spóźniony obraz nadpisał inny slot/inna decyzję
+      if (mySeq !== templateReqSeq) return resolve(false);
+      if (currentSlot !== startedSlot) return resolve(false);
+      if (!currentTemplate || String(currentTemplate.id || "") !== startedTemplateId) return resolve(false);
 
-    persistCurrentSlotState();
-    saveSlotsToLocal();
-  };
+      templateEditImg = img;
+      redraw();
 
-  img.onerror = () => {
-    if (!opts.silentErrors) {
-      derr("Nie mogę wczytać:", url);
-      toast("Nie mogę wczytać szablonu.");
-    }
-  };
+      persistAndSave();
+      resolve(true);
+    };
 
-  img.src = url;
+    img.onerror = () => {
+      if (!opts.silentErrors) {
+        derr("Nie mogę wczytać:", url);
+        toast("Nie mogę wczytać szablonu.");
+      }
+      resolve(false);
+    };
+
+    img.src = url;
+  });
 }
 
 function clearTemplateSelection(opts = {}) {
@@ -1600,10 +1646,10 @@ function clearTemplateSelection(opts = {}) {
   updateStatusBar();
   if (!opts.skipHistory) pushHistory();
 
-  persistCurrentSlotState();
-  saveSlotsToLocal();
+  persistAndSave();
 }
 /* ========END======== [SEKCJA 19] SZABLONY =========END======== */
+
 
 
 /* ========START======== [SEKCJA 20] EXPORT (NAZWY + PREVIEW JPG) =========START======== */
@@ -2415,4 +2461,4 @@ async function applyProductConfig(cfg) {
 })();
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-11 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-12 === */
