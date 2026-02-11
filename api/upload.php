@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /**
  * api/upload.php
- * FILE_VERSION: 2026-02-11-02
+ * FILE_VERSION: 2026-02-11-03
  *
  * Autoryzacja (kanałowo-neutralna):
  *  - preferowane: X-Project-Token
@@ -15,6 +15,9 @@ declare(strict_types=1);
  *  - obraz: pole "jpg" lub "png" (kompatybilność)
  *  - json: pole POST "json" lub plik "json_file"
  *  - order_id: POST "order_id" (opcjonalnie)
+ *
+ * Zapis:
+ *  uploads/<order_id|no_order>/{id}.{jpg|png} + {id}.json
  *
  * Wyjście:
  *  { ok:true, id, image_url, json_url, request_id, server_ts }
@@ -51,7 +54,6 @@ function mask_token(string $t): string {
 }
 
 function get_client_ip(): string {
-  // prosto, bez zaufania do X-Forwarded-For (można rozszerzyć później)
   return (string)($_SERVER['REMOTE_ADDR'] ?? '');
 }
 
@@ -82,7 +84,7 @@ function log_line(string $line): void {
 }
 
 function fail(int $code, string $error_code, string $error_message, array $extra = []): void {
-  global $REQUEST_ID, $AUTH_CONTEXT, $ORDER_ID_CLEAN;
+  global $REQUEST_ID, $AUTH_CONTEXT, $ORDER_ID_CLEAN, $ORDER_DIR_NAME;
 
   $payload = array_merge([
     'ok' => false,
@@ -92,18 +94,20 @@ function fail(int $code, string $error_code, string $error_message, array $extra
     'server_ts' => now_iso(),
   ], $extra);
 
-  // log
   $ip = get_client_ip();
   $tokenMasked = mask_token((string)($AUTH_CONTEXT['project_token'] ?? ''));
   $orderMasked = (string)($ORDER_ID_CLEAN ?? '');
+  $dirName = (string)($ORDER_DIR_NAME ?? '');
+
   log_line(sprintf(
-    '[%s] request_id=%s ip=%s status=%d ok=0 code=%s order_id=%s token=%s msg=%s',
+    '[%s] request_id=%s ip=%s status=%d ok=0 code=%s order_id=%s dir=%s token=%s msg=%s',
     now_iso(),
     $REQUEST_ID,
     $ip,
     $code,
     $error_code,
     $orderMasked,
+    $dirName,
     $tokenMasked,
     str_replace(["\n", "\r"], [' ', ' '], $error_message)
   ));
@@ -115,14 +119,8 @@ function fail(int $code, string $error_code, string $error_message, array $extra
 $REQUEST_ID = bin2hex(random_bytes(8));
 $AUTH_CONTEXT = ['mode' => 'none', 'project_token' => ''];
 $ORDER_ID_CLEAN = '';
+$ORDER_DIR_NAME = '';
 
-/**
- * Token extraction:
- * - X-Project-Token
- * - Authorization: Bearer <token>
- * - GET token
- * - POST project_token
- */
 function extract_project_token(): string {
   $t = (string)($_SERVER['HTTP_X_PROJECT_TOKEN'] ?? '');
   $t = trim($t);
@@ -130,7 +128,6 @@ function extract_project_token(): string {
 
   $auth = trim((string)($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
   if ($auth !== '') {
-    // Bearer <token>
     if (stripos($auth, 'Bearer ') === 0) {
       $b = trim(substr($auth, 7));
       if ($b !== '') return $b;
@@ -167,7 +164,6 @@ function authorize(): array {
     return ['mode' => 'project', 'project_token' => $projectToken];
   }
 
-  // legacy upload token (awaryjnie)
   $legacy = (string)($_SERVER['HTTP_X_UPLOAD_TOKEN'] ?? ($_POST['token'] ?? ''));
   $legacy = trim($legacy);
   if ($legacy !== '' && hash_equals(LEGACY_UPLOAD_TOKEN, $legacy)) {
@@ -186,8 +182,8 @@ if ($baseDir === false) {
   fail(500, 'SERVER_MISCONFIG', 'Server misconfig: base dir not found');
 }
 
-$uploadDir = $baseDir . DIRECTORY_SEPARATOR . 'uploads';
-ensure_dir($uploadDir, 0755);
+$uploadRoot = $baseDir . DIRECTORY_SEPARATOR . 'uploads';
+ensure_dir($uploadRoot, 0755);
 
 /* ==== HELPERS ==== */
 function mb_substr_safe(string $s, int $start, int $len): string {
@@ -223,14 +219,14 @@ function random_suffix(int $len): string {
   return $out;
 }
 
-function pick_unique_id(string $prefix, string $uploadDir): string {
+function pick_unique_id(string $prefix, string $dir): string {
   for ($i = 0; $i < NAME_TRIES; $i++) {
     $suffix = random_suffix(SHORT_SUFFIX_LEN);
     $id = $prefix !== '' ? ($prefix . '_' . $suffix) : $suffix;
 
-    $png  = $uploadDir . DIRECTORY_SEPARATOR . $id . '.png';
-    $jpg  = $uploadDir . DIRECTORY_SEPARATOR . $id . '.jpg';
-    $json = $uploadDir . DIRECTORY_SEPARATOR . $id . '.json';
+    $png  = $dir . DIRECTORY_SEPARATOR . $id . '.png';
+    $jpg  = $dir . DIRECTORY_SEPARATOR . $id . '.jpg';
+    $json = $dir . DIRECTORY_SEPARATOR . $id . '.json';
 
     if (!file_exists($png) && !file_exists($jpg) && !file_exists($json)) return $id;
   }
@@ -239,16 +235,17 @@ function pick_unique_id(string $prefix, string $uploadDir): string {
   return $prefix !== '' ? ($prefix . '_' . $suffix) : $suffix;
 }
 
-/* ==== ID PLIKU ==== */
+/* ==== ORDER / DIR ==== */
 $ORDER_ID_CLEAN = clean_id((string)($_POST['order_id'] ?? ''));
+$ORDER_DIR_NAME = $ORDER_ID_CLEAN !== '' ? $ORDER_ID_CLEAN : 'no_order';
+
+$uploadDir = $uploadRoot . DIRECTORY_SEPARATOR . $ORDER_DIR_NAME;
+ensure_dir($uploadDir, 0755);
+
+/* ==== ID PLIKU ==== */
 $id = pick_unique_id($ORDER_ID_CLEAN, $uploadDir);
 
 /* ==== PLIK OBRAZU ==== */
-/**
- * Kompatybilność:
- * - nowy frontend: field "jpg"
- * - stary frontend: field "png"
- */
 $fileKey = null;
 if (isset($_FILES['jpg']) && is_uploaded_file($_FILES['jpg']['tmp_name'])) $fileKey = 'jpg';
 if ($fileKey === null && isset($_FILES['png']) && is_uploaded_file($_FILES['png']['tmp_name'])) $fileKey = 'png';
@@ -291,8 +288,7 @@ $jsonPath = $uploadDir . DIRECTORY_SEPARATOR . $jsonName;
 $jsonText = $_POST['json'] ?? '';
 if (is_string($jsonText) && $jsonText !== '') {
   if (strlen($jsonText) > MAX_JSON_BYTES) {
-    // nie wywalamy uploadu obrazu; zwracamy ostrzeżenie (MVP)
-    // możesz zmienić na fail(413, ...) jeśli wolisz twardo blokować
+    // MVP: nie blokujemy obrazu; JSON pomijamy
   } else {
     @file_put_contents($jsonPath, $jsonText);
     $jsonSaved = true;
@@ -306,17 +302,18 @@ if (is_string($jsonText) && $jsonText !== '') {
 }
 
 /* ==== OK RESPONSE ==== */
-$baseUrl = 'https://puzzla.nazwa.pl/puzzla/projekt-podkladek/uploads/';
+$baseUrl = 'https://puzzla.nazwa.pl/puzzla/projekt-podkladek/uploads/' . rawurlencode($ORDER_DIR_NAME) . '/';
 
 $ip = get_client_ip();
 $tokenMasked = mask_token((string)($AUTH_CONTEXT['project_token'] ?? ''));
 log_line(sprintf(
-  '[%s] request_id=%s ip=%s status=200 ok=1 mode=%s order_id=%s token=%s file=%s bytes=%d mime=%s json=%s',
+  '[%s] request_id=%s ip=%s status=200 ok=1 mode=%s order_id=%s dir=%s token=%s file=%s bytes=%d mime=%s json=%s',
   now_iso(),
   $REQUEST_ID,
   $ip,
   (string)($AUTH_CONTEXT['mode'] ?? ''),
   (string)$ORDER_ID_CLEAN,
+  (string)$ORDER_DIR_NAME,
   $tokenMasked,
   $imageName,
   $size,
@@ -328,10 +325,11 @@ respond_json(200, [
   'ok' => true,
   'auth_mode' => $AUTH_CONTEXT['mode'],
   'id' => $id,
+  'order_dir' => $ORDER_DIR_NAME,
   'image_url' => $baseUrl . $imageName,
   'json_url' => $jsonSaved ? ($baseUrl . $jsonName) : null,
   'request_id' => $REQUEST_ID,
   'server_ts' => now_iso(),
 ]);
 
-/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-11-02 === */
+/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-11-03 === */
