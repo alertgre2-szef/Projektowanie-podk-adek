@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-13
+ * VERSION: 2026-02-11-14
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-13";
+const CACHE_VERSION = "2026-02-11-14";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -76,6 +76,8 @@ function getQueryParam(name) {
 }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 /* ========END======== [SEKCJA 01] UTIL + DEBUG =========END======== */
+
+
 
 
 /* ========START======== [SEKCJA 02] THEME =========START======== */
@@ -305,6 +307,9 @@ async function setSlot(index) {
   const mySeq = ++slotApplySeq;
   await applySlotState(mySeq);
   updateSlotUi();
+
+  // Historia/undo per-slot: po przełączeniu pokaż właściwe przyciski
+  updateUndoRedoButtons();
 }
 
 function wireSlotUi() {
@@ -315,6 +320,7 @@ function wireSlotUi() {
   els.next.addEventListener("click", () => setSlot(currentSlot + 1));
 }
 /* ========END======== [SEKCJA 04] SLOTY (N sztuk) + LOCALSTORAGE =========END======== */
+
 
 
 /* ========START======== [SEKCJA 05] DOM SELF-TEST + DOM QUERY =========START======== */
@@ -863,9 +869,19 @@ if (btnFreeMove) btnFreeMove.addEventListener("click", () => setFreeMove(!freeMo
 
 /* ========START======== [SEKCJA 13] HISTORIA (UNDO/REDO) =========START======== */
 const HISTORY_MAX = 5;
-let history = [];
-let historyIndex = -1;
+
+// Historia jest teraz PER-SLOT (izolacja transformacji)
+let historyBySlot = [];
 let suppressHistory = false;
+
+function ensureHistoryStore() {
+  if (historyBySlot.length === QTY) return;
+  historyBySlot = Array.from({ length: QTY }, () => ({ stack: [], index: -1 }));
+}
+function hist() {
+  ensureHistoryStore();
+  return historyBySlot[currentSlot];
+}
 
 function snapshot() {
   return {
@@ -890,31 +906,46 @@ function sameSnap(a, b) {
     a.templateId === b.templateId
   );
 }
+
+// Gwarantuje bazowy wpis historii dla aktualnego slota (bez brudzenia)
+function seedHistoryIfEmpty() {
+  const h = hist();
+  if (h.stack.length > 0) return;
+  const snap = snapshot();
+  h.stack = [snap];
+  h.index = 0;
+  updateUndoRedoButtons();
+}
+
 function pushHistory() {
   if (suppressHistory) return;
 
+  const h = hist();
   const snap = snapshot();
-  const last = history[historyIndex];
+  const last = h.stack[h.index];
   if (last && sameSnap(last, snap)) return;
 
-  if (historyIndex < history.length - 1) history = history.slice(0, historyIndex + 1);
+  if (h.index < h.stack.length - 1) h.stack = h.stack.slice(0, h.index + 1);
 
-  history.push(snap);
-  if (history.length > HISTORY_MAX) history.shift();
-  historyIndex = history.length - 1;
+  h.stack.push(snap);
+  if (h.stack.length > HISTORY_MAX) h.stack.shift();
+  h.index = h.stack.length - 1;
 
   updateUndoRedoButtons();
 
   persistCurrentSlotState();
   saveSlotsToLocal();
 }
+
 function updateUndoRedoButtons() {
-  if (btnUndo) btnUndo.disabled = historyIndex <= 0;
-  if (btnRedo) btnRedo.disabled = historyIndex >= history.length - 1;
+  const h = hist();
+  if (btnUndo) btnUndo.disabled = h.index <= 0;
+  if (btnRedo) btnRedo.disabled = h.index >= h.stack.length - 1;
 
   if (btnUndo) btnUndo.style.opacity = btnUndo.disabled ? "0.5" : "1";
   if (btnRedo) btnRedo.style.opacity = btnRedo.disabled ? "0.5" : "1";
 }
+
 async function applyStateFromHistory(snap) {
   if (!snap) return;
 
@@ -950,21 +981,27 @@ async function applyStateFromHistory(snap) {
   persistCurrentSlotState();
   saveSlotsToLocal();
 }
+
 async function undo() {
-  if (historyIndex <= 0) return;
-  historyIndex--;
-  await applyStateFromHistory(history[historyIndex]);
+  const h = hist();
+  if (h.index <= 0) return;
+  h.index--;
+  await applyStateFromHistory(h.stack[h.index]);
   markDirty();
 }
+
 async function redo() {
-  if (historyIndex >= history.length - 1) return;
-  historyIndex++;
-  await applyStateFromHistory(history[historyIndex]);
+  const h = hist();
+  if (h.index >= h.stack.length - 1) return;
+  h.index++;
+  await applyStateFromHistory(h.stack[h.index]);
   markDirty();
 }
+
 if (btnUndo) btnUndo.addEventListener("click", undo);
 if (btnRedo) btnRedo.addEventListener("click", redo);
 /* ========END======== [SEKCJA 13] HISTORIA (UNDO/REDO) =========END======== */
+
 
 
 /* ========START======== [SEKCJA 14] KSZTAŁT =========START======== */
@@ -1203,27 +1240,50 @@ async function applySlotState(seq = 0) {
   redraw();
   updateStatusBar();
   refreshExportButtons();
+
+  // Historia per-slot: zapewnij bazę po załadowaniu stanu slota (bez “przeciekania” między slotami)
+  seedHistoryIfEmpty();
 }
+
+let uploadSeq = 0;
 
 if (photoInput) {
   photoInput.addEventListener("change", (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // PRZYPINAMY upload do slota z momentu wyboru pliku (eliminuje race z przełączaniem slotów)
+    const slotAtStart = currentSlot;
+    const myUpload = ++uploadSeq;
+
     const reader = new FileReader();
     reader.onload = async () => {
+      // jeśli w międzyczasie zaczęto kolejny upload — ten ignorujemy
+      if (myUpload !== uploadSeq) return;
+
       const dataUrl = String(reader.result || "");
       if (!dataUrl) {
         toast("Nie udało się wczytać zdjęcia.");
         return;
       }
 
+      // ZAPISUJEMY zawsze do właściwego slota (tego z momentu wyboru pliku)
+      if (slots[slotAtStart]) slots[slotAtStart].photoDataUrl = dataUrl;
+      saveSlotsToLocal();
+
       try {
         const img = await loadImageFromDataUrl(dataUrl);
+
+        // Jeśli użytkownik w międzyczasie zmienił slot — nie ruszamy UI bieżącego slota.
+        if (slotAtStart !== currentSlot) {
+          toast(`Zdjęcie wgrane ✅ (podkładka ${slotAtStart + 1}/${QTY})`);
+          if (photoInput) photoInput.value = "";
+          return;
+        }
+
+        // slot się zgadza — aktualizujemy UI i stan runtime
         uploadedImg = img;
         qualityWarnLevel = 0;
-
-        if (slots[currentSlot]) slots[currentSlot].photoDataUrl = dataUrl;
 
         resetPhotoTransformToCover();
         redraw();
@@ -1248,6 +1308,7 @@ if (photoInput) {
   });
 }
 /* ========END======== [SEKCJA 16] ZDJĘCIE (LOAD) + SLOT STATE =========END======== */
+
 
 
 /* ========START======== [SEKCJA 17] OBRÓT =========START======== */
@@ -1866,16 +1927,26 @@ function drawNickLabelOnPrint() {
   const y = 2 + pad;
 
   ctx.save();
-  ctx.font = `${fontPx}px Arial, sans-serif`;
+  ctx.font = `bold ${fontPx}px Arial, sans-serif`;
   ctx.textBaseline = "top";
   ctx.lineJoin = "round";
 
   const text = nick.length > 32 ? (nick.slice(0, 32) + "…") : nick;
 
-  // biała obwódka
-  ctx.lineWidth = Math.max(2, Math.round(fontPx * 0.25));
+  // Lepsza czytelność: mocniejsza obwódka + delikatny cień (nadal biały kontur, czerwony środek)
+  ctx.shadowColor = "rgba(0,0,0,0.35)";
+  ctx.shadowBlur = Math.max(1, Math.round(fontPx * 0.10));
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+
+  // biała obwódka (grubsza)
+  ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.30));
   ctx.strokeStyle = "#ffffff";
   ctx.strokeText(text, x, y);
+
+  // wyłącz cień dla wypełnienia (czystsza czerwień)
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
 
   // czerwony fill
   ctx.fillStyle = "#d00000";
@@ -2025,6 +2096,7 @@ async function uploadToServer(blob, jsonText, filename, orderIdForUpload, fileBa
   return data || { ok: true };
 }
 /* ========END======== [SEKCJA 22] UPLOAD + PROJECT JSON + RENDER PRINT =========END======== */
+
 
 
 /* ========START======== [SEKCJA 23] MODAL NICK =========START======== */
