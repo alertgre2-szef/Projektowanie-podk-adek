@@ -162,3 +162,54 @@ Jeśli chcesz, sprawdź proszę, czy dane do wysyłki są poprawne — dzięki t
 Pozdrawiamy serdecznie  
 Zespół Puzzla (obsługa sklepu {{ seller.login | default("Sprzedawca") }} na Allegro) 🧩
 --------------------------------------------------------------------------------------------------------------
+
+
+SKU podkładek
+
+Okrągła Foto Podkładka Korek - Karton Kubek Kubki ze Zdjęcia. Fotopodkładka
+→ Pod_Korek-Karton_Okrągła
+
+6 Podkładek Podkładki Pod Kubek ze Zdjęcia Fotopodkładki z Twoim Zdjęciem
+→ 6x_Pod_Czarna_Okrągła
+
+1szt Foto podkładka pod kubki z Twoim nadrukiem zdjęciem. Korek + Karton.
+→ Pod_Korek-Karton_Kwadrat
+
+Foto Podkładka Kartonowa Kubek Kubki Okrągła 9cm ze Zdjęcia. Fotopodkładka
+→ Pod_Beermat_Okrągła
+
+Foto Podkładka Kartonowa Kubek Kubki Okrągła 9cm ze Zdjęcia. Fotopodkładka
+→ Pod_Czarna_Okrągła
+
+Foto Podkładka Kartonowa Kubek Kubki Kwadrat 9cm ze Zdjęcia. Fotopodkładka
+→ Pod_Beermat_Kwadrat
+
+Drewniana Foto Podkładka pod Kubek z Nadrukiem Twoim Zdjęciem Fotopodkładka
+→ Pod_Drewniana_Kwadrat
+
+Foto Podkładka z Korka Kubek Kubki Okrągła 9cm ze Zdjęcia. Fotopodkładka
+→ Pod_Korek-Karton_Okrągła
+
+Foto Podkładka Drewniana Kubek Kubki Okrągła 9cm ze Zdjęcia. Fotopodkładka
+→ Pod_Drewniana_Okrągła
+
+podkładki pod kubki z nadrukiem, zdjęciem, czarna tektura, zestaw 50 szt
+→ PODK50
+
+6 Podkładek Podkładki Pod Kubek ze Zdjęcia Fotopodkładki z Twoim Nadrukiem
+→ 6xPod_Beermat_Kwadrat
+
+Korkowa Foto Podkładka pod Kubek z Nadrukiem Twoim Zdjęciem Korek Naturalny
+→ Pod_Korek_Kwadrat
+
+6szt. Fot podkładki ze zdjęcia pod kubki. Naturalny korek. Plamoodporne.
+→ 6xPod_Korek_Kwadrat
+
+6szt Foto Podkładki pod Kubek Kubki Kwadrat 9x9cm ze Zdjęcia. Fotopodkładki
+→ 6xPod_Czarna_Kwadrat
+
+Foto Podkładka Kartonowa Kubek Kubki Kwadrat 9cm ze Zdjęcia. Fotopodkładka
+→ Pod_Czarna_Kwadrat
+--------------------------------------------------------------------------------------------------------------
+
+
