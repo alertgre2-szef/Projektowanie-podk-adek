@@ -280,15 +280,14 @@ function slotUiEls() {
   };
 }
 
+/**
+ * UX: baner ma działać ZAWSZE:
+ * - QTY=1: "Brakuje zdjęcia..." / "Projekt gotowy..."
+ * - QTY>1: "Brakuje projektów..." / "Projekty gotowe..."
+ */
 function updateCompletionBanner(done, total) {
   const els = slotUiEls();
   if (!els.banner) return;
-
-  // pokazujemy tylko gdy jest multi-sztuk
-  if (QTY <= 1) {
-    els.banner.style.display = "none";
-    return;
-  }
 
   els.banner.style.display = "";
 
@@ -296,6 +295,13 @@ function updateCompletionBanner(done, total) {
 
   els.banner.classList.toggle("completionBanner--ok", isOk);
   els.banner.classList.toggle("completionBanner--need", !isOk);
+
+  if (total <= 1) {
+    els.banner.textContent = isOk
+      ? "Projekt gotowy do wysyłki ✅"
+      : "Brakuje zdjęcia — wgraj je, aby wysłać projekt.";
+    return;
+  }
 
   els.banner.textContent = isOk
     ? "Projekty gotowe do wysyłki ✅"
@@ -306,18 +312,19 @@ function updateSlotUi() {
   const els = slotUiEls();
   if (!els.card) return;
 
+  // karta slotów tylko dla multi (QTY>1)
   if (QTY <= 1) {
     els.card.style.display = "none";
-    if (els.banner) els.banner.style.display = "none";
-    return;
+  } else {
+    els.card.style.display = "";
   }
-  els.card.style.display = "";
 
-  if (els.ind) els.ind.textContent = `${currentSlot + 1} / ${QTY}`;
-
+  // licznik slotów i progres sensowne tylko dla QTY>1
+  if (els.ind) els.ind.textContent = (QTY > 1) ? `${currentSlot + 1} / ${QTY}` : "";
   const done = slots.filter(s => !!s.photoDataUrl).length;
-  if (els.prog) els.prog.textContent = `Ukończono: ${done} / ${QTY}`;
+  if (els.prog) els.prog.textContent = (QTY > 1) ? `Ukończono: ${done} / ${QTY}` : "";
 
+  // baner zawsze
   updateCompletionBanner(done, QTY);
 
   const disabledByBusy = productionLocked || isApplyingSlot;
@@ -448,6 +455,8 @@ function wireSlotUi() {
   els.next.addEventListener("click", () => setSlot(currentSlot + 1));
 }
 /* ========END======== [SEKCJA 04] SLOTY (N sztuk) + LOCALSTORAGE =========END======== */
+/* KONIEC BLOKU 04 */
+
 
 
 
@@ -2679,6 +2688,59 @@ async function applyProductConfig(cfg) {
 }
 /* ========END======== [SEKCJA 25] APPLY productConfig =========END======== */
 
+/* ========START======== [SEKCJA 25a] EXTERNAL offerId OVERRIDES (NIEZBĘDNIK) =========START======== */
+function applyExternalOfferOverrides(cfg) {
+  try {
+    const ctx = (typeof getExternalContext === "function") ? getExternalContext() : null;
+    if (!ctx || !ctx.isExternalInit) return cfg;
+
+    const offerId = String(ctx.offerId || "").trim();
+    if (!offerId) return cfg;
+
+    // Minimalne mapowanie offerId → wymuszenia (tylko to, co krytyczne dla UX)
+    // Rozszerzysz później o kolejne produkty/SKU.
+    const map = {
+      coaster_circle_100: {
+        ui: { subtitle: "Projekt 10 cm (okrąg, spad)." },
+        product: {
+          type: "coaster",
+          name: "Podkładka 10 cm",
+          size_mm: { w: 100, h: 100 },
+          corner_radius_mm: 0,
+          shape_default: "circle",
+          shape_options: ["circle", "square"],
+        },
+      },
+      coaster_square_100_r5: {
+        ui: { subtitle: "Projekt 10×10 cm (spad)." },
+        product: {
+          type: "coaster",
+          name: "Podkładka 10×10",
+          size_mm: { w: 100, h: 100 },
+          corner_radius_mm: 5,
+          shape_default: "square",
+          shape_options: ["square", "circle"],
+        },
+      },
+    };
+
+    const ovr = map[offerId];
+    if (!ovr) return cfg;
+
+    // Merge (bez rozwalania backendu)
+    const next = { ...cfg };
+    next.ui = { ...(cfg.ui || {}), ...(ovr.ui || {}) };
+    next.product = { ...(cfg.product || {}), ...(ovr.product || {}) };
+
+    // Jeśli backend podał inne shape_options, to offerId ma pierwszeństwo (UX)
+    if (ovr.product?.shape_options) next.product.shape_options = ovr.product.shape_options;
+
+    return next;
+  } catch {
+    return cfg;
+  }
+}
+/* ========END======== [SEKCJA 25a] EXTERNAL offerId OVERRIDES (NIEZBĘDNIK) =========END======== */
 
 
 /* ========START======== [SEKCJA 26] INIT =========START======== */
@@ -2823,7 +2885,7 @@ async function applyProductConfig(cfg) {
   const cfg = await loadConfigFromBackend(TOKEN);
 
   if (cfg) {
-    await applyProductConfig(cfg);
+    await applyProductConfig(applyExternalOfferOverrides(cfg));
     toast("Konfiguracja załadowana ✅");
   } else {
     showProductManualChooser();
@@ -2839,7 +2901,8 @@ async function applyProductConfig(cfg) {
     }
 
     const manualCfg = normalizeProductConfig(preset, { token: "", mode: "manual" });
-    await applyProductConfig(manualCfg);
+        await applyProductConfig(applyExternalOfferOverrides(manualCfg));
+
 
     toast("Backend/token niedostępny — uruchomiono tryb ręczny.");
   }
