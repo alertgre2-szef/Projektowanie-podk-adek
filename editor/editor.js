@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer .
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-13-02
+ * VERSION: 2026-02-13-03
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-13-02";
+const CACHE_VERSION = "2026-02-13-03";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -125,7 +125,7 @@ function wireThemeButtons() {
 /* ========END======== [SEKCJA 02] THEME =========END======== */
 
 
-/* ========START======== [SEKCJA 03] URL PARAMS (NICK/ORDER/OFFER/QTY/BUYER) =========START======== */
+/* ========START======== [SEKCJA 03] URL PARAMS (NICK/ORDER/OFFER/SLOTS/QTY/BUYER) =========START======== */
 function _parseHashParams() {
   const h = (location.hash || "").replace(/^#/, "").trim();
   if (!h) return new URLSearchParams();
@@ -147,19 +147,27 @@ function getUrlParamAny(keys) {
 
 /**
  * ExternalContext – parametry z linka z Niezbędnika:
- * order, offerId, qty, buyer
- * Wszystko opcjonalne. Tryb zewnętrzny tylko gdy mamy: order + offerId + poprawne qty.
+ * order, offerId, slots, qty, buyer
+ *
+ * NOWA LOGIKA:
+ * - slots => liczba projektów (slotów w edytorze)
+ * - qty   => liczba sztuk do produkcji (może być > slots; np. komplet)
+ *
+ * Kompatybilność:
+ * - stare linki: qty/n bez slots -> traktujemy jako slots=qty i qty=qty
+ * - jeśli podano tylko slots -> qty=slots
  */
 const EXTERNAL_CTX = {
   isExternalInit: false,
   orderId: "",
   offerId: "",
-  quantity: 1,
+  slotsCount: 1,
+  prodQty: 1,
   buyerLogin: "",
-  raw: { order: "", offerId: "", qty: "", buyer: "" },
+  raw: { order: "", offerId: "", slots: "", qty: "", buyer: "" },
 };
 
-function _parseQtyInt(raw, { min = 1, max = 99 } = {}) {
+function _parseQtyInt(raw, { min = 1, max = 999 } = {}) {
   const n = Number(String(raw || "").trim());
   if (!Number.isFinite(n)) return null;
   const i = Math.floor(n);
@@ -170,43 +178,63 @@ function _parseQtyInt(raw, { min = 1, max = 99 } = {}) {
 function initExternalContextFromUrl() {
   const order = getUrlParamAny(["order", "order_id"]);
   const offerId = getUrlParamAny(["offerId", "offer_id", "offer"]);
-  const qtyRaw = getUrlParamAny(["qty", "q", "quantity", "count", "n"]);
+
+  // NOWE:
+  const slotsRaw = getUrlParamAny(["slots", "s", "projects"]);
+  const qtyRaw = getUrlParamAny(["qty", "q", "quantity", "count"]);
+
+  // STARE: n bywało używane jako ilość slotów
+  const legacyN = getUrlParamAny(["n"]);
+
   const buyer = getUrlParamAny(["buyer", "login", "user"]);
 
-  EXTERNAL_CTX.raw = { order, offerId, qty: qtyRaw, buyer };
+  EXTERNAL_CTX.raw = { order, offerId, slots: slotsRaw || legacyN, qty: qtyRaw || "", buyer };
 
-  const qty = _parseQtyInt(qtyRaw, { min: 1, max: 99 });
+  // slots: preferuj "slots", fallback do legacy "n", a jeśli brak => fallback do qty
+  const slotsParsed =
+    _parseQtyInt(slotsRaw, { min: 1, max: 999 }) ??
+    _parseQtyInt(legacyN, { min: 1, max: 999 }) ??
+    _parseQtyInt(qtyRaw, { min: 1, max: 999 });
+
+  // qty: preferuj "qty", fallback do slots
+  const qtyParsed =
+    _parseQtyInt(qtyRaw, { min: 1, max: 999 }) ??
+    slotsParsed;
+
+  const slotsCount = slotsParsed == null ? 1 : slotsParsed;
+  const prodQty = qtyParsed == null ? slotsCount : qtyParsed;
 
   // Tryb zewnętrzny TYLKO jeśli komplet minimum jest poprawny:
-  // order + offerId + qty
-  if (order && offerId && qty != null) {
+  // order + offerId + (slots lub qty poprawne)
+  if (order && offerId && (slotsParsed != null || qtyParsed != null)) {
     EXTERNAL_CTX.isExternalInit = true;
     EXTERNAL_CTX.orderId = order;
     EXTERNAL_CTX.offerId = offerId;
-    EXTERNAL_CTX.quantity = qty;
+    EXTERNAL_CTX.slotsCount = slotsCount;
+    EXTERNAL_CTX.prodQty = prodQty;
     EXTERNAL_CTX.buyerLogin = buyer || "";
   } else {
     EXTERNAL_CTX.isExternalInit = false;
     EXTERNAL_CTX.orderId = "";
     EXTERNAL_CTX.offerId = "";
-    EXTERNAL_CTX.quantity = 1; // nie rozbijamy edytora – manual/standalone
+    EXTERNAL_CTX.slotsCount = 1;
+    EXTERNAL_CTX.prodQty = 1;
     EXTERNAL_CTX.buyerLogin = "";
   }
 }
 
-// uruchom natychmiast, zanim policzymy QTY i klucze localStorage
+// uruchom natychmiast, zanim policzymy SLOTY/QTY i klucze localStorage
 initExternalContextFromUrl();
 
 function getExternalContext() { return EXTERNAL_CTX; }
 
 function getNickFromUrl() {
-  // nick to nie buyer – ale jako fallback (np. stary link) nadal wspieramy
+  // nick to nie buyer – ale jako fallback nadal wspieramy
   // Priorytet: nick → buyer → (stare) order
   return getUrlParamAny(["nick", "buyer", "order", "order_id"]);
 }
 
 function getOrderIdFromUrl() {
-  // jeśli link z Niezbędnika jest poprawny – zawsze preferuj orderId z kontekstu
   if (EXTERNAL_CTX.isExternalInit && EXTERNAL_CTX.orderId) return EXTERNAL_CTX.orderId;
   return getUrlParamAny(["order_id", "order"]);
 }
@@ -221,22 +249,35 @@ function getBuyerLoginFromUrl() {
   return getUrlParamAny(["buyer", "login", "user"]);
 }
 
-function getQtyFromUrl() {
-  // UX: qty ma wpływ na sloty tylko w trybie zewnętrznym (order+offerId+qty poprawne)
-  if (EXTERNAL_CTX.isExternalInit) return EXTERNAL_CTX.quantity;
+// SLOTY: liczba projektów (edytor)
+function getSlotsCountFromUrl() {
+  if (EXTERNAL_CTX.isExternalInit) return EXTERNAL_CTX.slotsCount;
 
-  // Standalone/manual: zachowujemy dotychczasowe wsparcie qty, ale w bezpiecznych granicach
-  const raw = getUrlParamAny(["qty", "q", "quantity", "count", "n"]);
-  const qty = _parseQtyInt(raw, { min: 1, max: 99 });
+  const rawSlots = getUrlParamAny(["slots", "s", "projects", "n"]);
+  const rawQty = getUrlParamAny(["qty", "q", "quantity", "count"]); // legacy fallback
+
+  const slots = _parseQtyInt(rawSlots, { min: 1, max: 999 }) ?? _parseQtyInt(rawQty, { min: 1, max: 999 });
+  return slots == null ? 1 : slots;
+}
+
+// QTY: liczba sztuk do produkcji
+function getProdQtyFromUrl() {
+  if (EXTERNAL_CTX.isExternalInit) return EXTERNAL_CTX.prodQty;
+
+  const rawQty = getUrlParamAny(["qty", "q", "quantity", "count"]);
+  const rawSlots = getUrlParamAny(["slots", "s", "projects", "n"]); // fallback
+  const qty = _parseQtyInt(rawQty, { min: 1, max: 999 }) ?? _parseQtyInt(rawSlots, { min: 1, max: 999 });
   return qty == null ? 1 : qty;
 }
-/* ========END======== [SEKCJA 03] URL PARAMS (NICK/ORDER/OFFER/QTY/BUYER) =========END======== */
+/* ========END======== [SEKCJA 03] URL PARAMS (NICK/ORDER/OFFER/SLOTS/QTY/BUYER) =========END======== */
 
 
 
-/* ========START======== [SEKCJA 04] SLOTY (N sztuk) + LOCALSTORAGE =========START======== */
-const QTY = getQtyFromUrl();
-let currentSlot = 0; // 0..QTY-1
+/* ========START======== [SEKCJA 04] SLOTY (SLOTS_COUNT) + LOCALSTORAGE =========START======== */
+const SLOTS_COUNT = getSlotsCountFromUrl();   // ile projektów w edytorze
+const PROD_QTY = getProdQtyFromUrl();         // ile sztuk do produkcji (może być > SLOTS_COUNT)
+
+let currentSlot = 0; // 0..SLOTS_COUNT-1
 let slots = []; // wypełniane po init
 
 // GLOBAL: blokada interakcji podczas applySlotState (anti-race)
@@ -245,15 +286,15 @@ let isApplyingSlot = false;
 function slotKeyBaseV1() {
   const t = String(getQueryParam("token") || "no_token");
   const oid = String(getOrderIdFromUrl() || getNickFromUrl() || "no_order");
-  return `EDITOR_SLOTS_V1|${t}|${oid}|qty=${QTY}`;
+  return `EDITOR_SLOTS_V1|${t}|${oid}|qty=${SLOTS_COUNT}`;
 }
 
 function slotKeyBase() {
-  // V3: izolacja per domena + repo_base, żeby nie mieszać środowisk
+  // V4: izolacja per domena + repo_base + (slots + qty produkcyjne) – aby nie mieszać kompletów z singlami
   const t = String(getQueryParam("token") || "no_token");
   const oid = String(getOrderIdFromUrl() || getNickFromUrl() || "no_order");
   const scope = `${location.origin}${REPO_BASE}`;
-  return `EDITOR_SLOTS_V3|${scope}|${t}|${oid}|qty=${QTY}`;
+  return `EDITOR_SLOTS_V4|${scope}|${t}|${oid}|slots=${SLOTS_COUNT}|qty=${PROD_QTY}`;
 }
 
 function migrateSlotsKeyIfNeeded() {
@@ -261,10 +302,21 @@ function migrateSlotsKeyIfNeeded() {
     const newKey = slotKeyBase();
     if (localStorage.getItem(newKey)) return;
 
+    // migracja ze starego V3 (qty==slots)
+    const t = String(getQueryParam("token") || "no_token");
+    const oid = String(getOrderIdFromUrl() || getNickFromUrl() || "no_order");
+    const scope = `${location.origin}${REPO_BASE}`;
+    const oldV3 = `EDITOR_SLOTS_V3|${scope}|${t}|${oid}|qty=${SLOTS_COUNT}`;
+    const raw3 = localStorage.getItem(oldV3);
+    if (raw3) {
+      localStorage.setItem(newKey, raw3);
+      return;
+    }
+
+    // migracja z V1
     const oldKey = slotKeyBaseV1();
     const raw = localStorage.getItem(oldKey);
     if (!raw) return;
-
     localStorage.setItem(newKey, raw);
   } catch {}
 }
@@ -282,8 +334,8 @@ function slotUiEls() {
 
 /**
  * UX: baner ma działać ZAWSZE:
- * - QTY=1: "Brakuje zdjęcia..." / "Projekt gotowy..."
- * - QTY>1: "Brakuje projektów..." / "Projekty gotowe..."
+ * - slots=1: "Brakuje zdjęcia..." / "Projekt gotowy..."
+ * - slots>1: "Brakuje projektów..." / "Projekty gotowe..."
  */
 function updateCompletionBanner(done, total) {
   const els = slotUiEls();
@@ -312,25 +364,25 @@ function updateSlotUi() {
   const els = slotUiEls();
   if (!els.card) return;
 
-  // karta slotów tylko dla multi (QTY>1)
-  if (QTY <= 1) {
+  // karta slotów tylko dla multi
+  if (SLOTS_COUNT <= 1) {
     els.card.style.display = "none";
   } else {
     els.card.style.display = "";
   }
 
-  // licznik slotów i progres sensowne tylko dla QTY>1
-  if (els.ind) els.ind.textContent = (QTY > 1) ? `${currentSlot + 1} / ${QTY}` : "";
+  // licznik slotów i progres sensowne tylko dla multi
+  if (els.ind) els.ind.textContent = (SLOTS_COUNT > 1) ? `${currentSlot + 1} / ${SLOTS_COUNT}` : "";
   const done = slots.filter(s => !!s.photoDataUrl).length;
-  if (els.prog) els.prog.textContent = (QTY > 1) ? `Ukończono: ${done} / ${QTY}` : "";
+  if (els.prog) els.prog.textContent = (SLOTS_COUNT > 1) ? `Ukończono: ${done} / ${SLOTS_COUNT}` : "";
 
   // baner zawsze
-  updateCompletionBanner(done, QTY);
+  updateCompletionBanner(done, SLOTS_COUNT);
 
   const disabledByBusy = productionLocked || isApplyingSlot;
 
   if (els.prev) els.prev.disabled = disabledByBusy || currentSlot <= 0;
-  if (els.next) els.next.disabled = disabledByBusy || currentSlot >= QTY - 1;
+  if (els.next) els.next.disabled = disabledByBusy || currentSlot >= SLOTS_COUNT - 1;
 }
 
 function toast(msg, ms = 10000) {
@@ -382,7 +434,11 @@ function saveSlotsToLocal() {
       offsetY: Number(s.offsetY || 0),
       freeMove: !!s.freeMove,
     }));
-    localStorage.setItem(key, JSON.stringify({ v: 2, qty: QTY, slots: snapshot }));
+    localStorage.setItem(key, JSON.stringify({
+      v: 3,
+      slots: snapshot,
+      meta: { slots: SLOTS_COUNT, qty: PROD_QTY }
+    }));
   } catch {}
 }
 
@@ -392,7 +448,13 @@ function loadSlotsFromLocal() {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (!data || (data.v !== 1 && data.v !== 2) || data.qty !== QTY || !Array.isArray(data.slots)) return null;
+
+    // kompatybilność ze starymi zapisami
+    if (!data || !Array.isArray(data.slots)) return null;
+
+    const metaSlots = data?.meta?.slots ?? data?.qty;
+    if (metaSlots != null && metaSlots !== SLOTS_COUNT) return null;
+
     return data.slots;
   } catch {
     return null;
@@ -406,7 +468,7 @@ let wheelTimer = 0;
 let wheelCommitSlot = 0;
 
 async function setSlot(index) {
-  const next = Math.max(0, Math.min(QTY - 1, index));
+  const next = Math.max(0, Math.min(SLOTS_COUNT - 1, index));
   if (next === currentSlot) return;
 
   // jeśli trwa apply slotu — ignoruj klik
@@ -454,9 +516,8 @@ function wireSlotUi() {
   els.prev.addEventListener("click", () => setSlot(currentSlot - 1));
   els.next.addEventListener("click", () => setSlot(currentSlot + 1));
 }
-/* ========END======== [SEKCJA 04] SLOTY (N sztuk) + LOCALSTORAGE =========END======== */
+/* ========END======== [SEKCJA 04] SLOTY (SLOTS_COUNT) + LOCALSTORAGE =========END======== */
 /* KONIEC BLOKU 04 */
-
 
 
 
@@ -928,15 +989,17 @@ function updateStatusBar() {
   const mmW = productConfig?.product?.size_mm?.w ?? 0;
   const mmH = productConfig?.product?.size_mm?.h ?? 0;
 
-  const slotInfo = QTY > 1 ? ` | Sztuka: ${currentSlot + 1}/${QTY}` : "";
+  const slotInfo = SLOTS_COUNT > 1 ? ` | Projekt: ${currentSlot + 1}/${SLOTS_COUNT}` : "";
+  const qtyInfo = ` | Produkcja: ${PROD_QTY} szt.`;
   const modeStr = productConfig?.mode === "backend" ? "backend" : "ręczny";
 
   statusBar.textContent =
-    `Tryb: ${modeStr} | Produkt: ${prod} ${mmW}×${mmH}mm | Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | Obrót: ${rot} | Kadr: ${lockStr} | DPI: ${dpiStr} | Jakość: ${q}${slotInfo}`;
+    `Tryb: ${modeStr} | Produkt: ${prod} ${mmW}×${mmH}mm | Kształt: ${sh} | Szablon: ${templateName()} | Zoom: ${fmtZoomPct()} | Obrót: ${rot} | Kadr: ${lockStr} | DPI: ${dpiStr} | Jakość: ${q}${slotInfo}${qtyInfo}`;
 
   applyStatusBarQualityStyle(dpi);
 }
 /* ========END======== [SEKCJA 10] STAN + DIRTY + STATUS BAR =========END======== */
+
 
 
 /* ========START======== [SEKCJA 11] EXPORT BUTTONS (WYSYŁKA ZAWSZE AKTYWNA) =========START======== */
@@ -954,12 +1017,14 @@ function refreshExportButtons() {
     productionHint.innerHTML =
       `${modeStr}. ` +
       `Wysyłka: <b>aktywna</b> → <code>${uploadUrl}</code><br>` +
+      `Projekty: <b>${SLOTS_COUNT}</b> | Produkcja: <b>${PROD_QTY}</b> szt.<br>` +
       `Po wysłaniu projekt trafia do produkcji i <b>nie będzie można wprowadzić zmian</b>.`;
   }
 
   updateSlotUi();
 }
 /* ========END======== [SEKCJA 11] EXPORT BUTTONS (WYSYŁKA ZAWSZE AKTYWNA) =========END======== */
+
 
 
 /* ========START======== [SEKCJA 12] KADR (FREE MOVE) =========START======== */
@@ -1024,8 +1089,8 @@ let historyBySlot = [];
 let suppressHistory = false;
 
 function ensureHistoryStore() {
-  if (historyBySlot.length === QTY) return;
-  historyBySlot = Array.from({ length: QTY }, () => ({ stack: [], index: -1 }));
+  if (historyBySlot.length === SLOTS_COUNT) return;
+  historyBySlot = Array.from({ length: SLOTS_COUNT }, () => ({ stack: [], index: -1 }));
 }
 function hist() {
   ensureHistoryStore();
@@ -1452,7 +1517,7 @@ if (photoInput) {
 
         // jeśli user zmienił slot w międzyczasie — nie ruszaj UI
         if (slotAtStart !== currentSlot) {
-          toast(`Zdjęcie wgrane ✅ (podkładka ${slotAtStart + 1}/${QTY})`);
+          toast(`Zdjęcie wgrane ✅ (projekt ${slotAtStart + 1}/${SLOTS_COUNT})`);
           if (photoInput) photoInput.value = "";
           updateSlotUi();
           return;
@@ -1480,7 +1545,7 @@ if (photoInput) {
         refreshExportButtons();
         updateSlotUi();
 
-        toast(`Zdjęcie wgrane ✅ (sztuka ${currentSlot + 1}/${QTY})`);
+        toast(`Zdjęcie wgrane ✅ (projekt ${currentSlot + 1}/${SLOTS_COUNT})`);
         maybeWarnQuality(true);
 
         markDirty();
@@ -1988,7 +2053,7 @@ if (btnDownloadPreview) {
     const a = document.createElement("a");
     const nick = sanitizeFileBase(nickInput?.value);
     const pid = productConfig?.product?.type ? safeFileToken(productConfig.product.type, "produkt") : "produkt";
-    const slotSuffix = QTY > 1 ? `_s${String(currentSlot + 1).padStart(2, "0")}of${QTY}` : "";
+    const slotSuffix = SLOTS_COUNT > 1 ? `_s${String(currentSlot + 1).padStart(2, "0")}of${SLOTS_COUNT}` : "";
     a.download = `${nick}_${pid}${slotSuffix}_preview.jpg`;
     a.href = canvas.toDataURL("image/jpeg", 0.70);
     a.click();
@@ -1996,6 +2061,7 @@ if (btnDownloadPreview) {
   });
 }
 /* ========END======== [SEKCJA 20] EXPORT (NAZWY + PREVIEW JPG) =========END======== */
+
 
 
 /* ========START======== [SEKCJA 21] OVERLAYS + LOCK UI =========START======== */
@@ -2087,8 +2153,9 @@ function closeErrorOverlay() {
 /* ========END======== [SEKCJA 21] OVERLAYS + LOCK UI =========END======== */
 
 
+
 /* ========START======== [SEKCJA 22] UPLOAD + PROJECT JSON + RENDER PRINT =========START======== */
-const PROJECT_JSON_SCHEMA_VERSION = 2;
+const PROJECT_JSON_SCHEMA_VERSION = 3;
 
 function roundNum(x, digits = 6) {
   const n = Number(x);
@@ -2097,7 +2164,7 @@ function roundNum(x, digits = 6) {
   return Math.round(n * m) / m;
 }
 
-function buildProjectJson({ slotIndex, slotTotal, baseOrderId }) {
+function buildProjectJson({ slotIndex, slotTotal, productionTotal, copiesForThisSlot, baseOrderId }) {
   const nick = (nickInput?.value || "").trim();
   const dpi = getEffectiveDpi();
   const urlNickRaw = getNickFromUrl();
@@ -2121,8 +2188,12 @@ function buildProjectJson({ slotIndex, slotTotal, baseOrderId }) {
       base_order_id: baseOrderId || orderId || "",
       url_nick_raw: urlNickRaw || "",
       url_order_id_raw: urlOrderIdRaw || "",
-      qty: slotTotal,
+
+      // NOWE:
+      slots_count: slotTotal,
+      production_qty: productionTotal,
       slot_index: slotIndex + 1,
+      copies_for_this_slot: copiesForThisSlot,
 
       // Niezbędnik (jeśli link był poprawny) – do przyszłego mapowania/automatyzacji
       offer_id: (getExternalContext()?.isExternalInit ? (getExternalContext()?.offerId || "") : ""),
@@ -2178,18 +2249,18 @@ function drawNickLabelOnPrint() {
 
   const text = nick.length > 32 ? (nick.slice(0, 32) + "…") : nick;
 
-  // Lepsza czytelność: mocniejsza obwódka + delikatny cień (nadal biały kontur, czerwony środek)
+  // Lepsza czytelność: mocniejsza obwódka + delikatny cień
   ctx.shadowColor = "rgba(0,0,0,0.35)";
   ctx.shadowBlur = Math.max(1, Math.round(fontPx * 0.10));
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 0;
 
-  // biała obwódka (grubsza)
+  // biała obwódka
   ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.30));
   ctx.strokeStyle = "#ffffff";
   ctx.strokeText(text, x + pad, y + pad);
 
-  // wyłącz cień dla wypełnienia (czystsza czerwień)
+  // wyłącz cień dla wypełnienia
   ctx.shadowColor = "transparent";
   ctx.shadowBlur = 0;
 
@@ -2344,7 +2415,6 @@ async function uploadToServer(blob, jsonText, filename, orderIdForUpload, fileBa
 
 
 
-
 /* ========START======== [SEKCJA 23] MODAL NICK =========START======== */
 let pendingSendAfterNick = false;
 let lastFocusElBeforeModal = null;
@@ -2461,7 +2531,7 @@ window.addEventListener("keydown", (e) => {
 /* ========END======== [SEKCJA 23] MODAL NICK =========END======== */
 
 
-/* ========START======== [SEKCJA 24] SEND (KOMPLET + ARKUSZ) =========START======== */
+/* ========START======== [SEKCJA 24] SEND (SLOTS + QTY PRODUKCJI + ARKUSZ) =========START======== */
 function dpiWarningText(dpi) {
   if (dpi == null) return null;
 
@@ -2490,23 +2560,32 @@ function joinNumsPolish(nums) {
 }
 
 async function ensureAllSlotsHavePhotosOrConfirm() {
-  if (QTY <= 1) return true;
+  if (SLOTS_COUNT <= 1) return true;
 
   const missing = [];
-  for (let i = 0; i < QTY; i++) if (!slotHasPhoto(i)) missing.push(i + 1);
+  for (let i = 0; i < SLOTS_COUNT; i++) if (!slotHasPhoto(i)) missing.push(i + 1);
   if (missing.length === 0) return true;
 
   const label = missing.length === 1
-    ? `Brakuje zdjęcia w podkładce nr ${missing[0]}.`
-    : `Brakuje zdjęcia w podkładkach nr ${joinNumsPolish(missing)}.`;
+    ? `Brakuje zdjęcia w projekcie nr ${missing[0]}.`
+    : `Brakuje zdjęcia w projektach nr ${joinNumsPolish(missing)}.`;
 
   window.alert(
     `${label}\n\n` +
-    `Aby wysłać komplet, uzupełnij brakujące podkładki.\n` +
+    `Aby wysłać zamówienie, uzupełnij brakujące projekty.\n` +
     `Użyj przycisków „Poprzednia / Następna”.`
   );
 
   return false;
+}
+
+// Rozdział sztuk do produkcji na sloty (jeśli qty != slots)
+function copiesForSlotIndex(i) {
+  const slotsN = Math.max(1, SLOTS_COUNT);
+  const total = Math.max(1, PROD_QTY);
+  const base = Math.floor(total / slotsN);
+  const rem = total % slotsN;
+  return base + (i < rem ? 1 : 0);
 }
 
 async function sendToProduction(skipNickCheck = false) {
@@ -2545,15 +2624,16 @@ async function sendToProduction(skipNickCheck = false) {
     const nickBase = sanitizeFileBase(nick || baseOrderId || "projekt");
     const commonOrderIdForUpload = baseOrderId || nickBase || "projekt";
 
-    const slotPrintBlobs = [];
+    // zbieramy dokładnie tyle renderów, ile sztuk do produkcji (po powieleniu)
+    const productionBlobs = [];
 
-    for (let i = 0; i < QTY; i++) {
+    for (let i = 0; i < SLOTS_COUNT; i++) {
       await setSlot(i);
 
       const dpi = getEffectiveDpi();
       const dpiWarn = dpiWarningText(dpi);
       if (dpiWarn) {
-        const ok = window.confirm(`Podkładka ${i + 1}/${QTY}:\n\n` + dpiWarn);
+        const ok = window.confirm(`Projekt ${i + 1}/${SLOTS_COUNT}:\n\n` + dpiWarn);
         if (!ok) {
           setUiLocked(false);
           toast("Wysyłka przerwana (ostrzeżenie jakości).");
@@ -2562,34 +2642,55 @@ async function sendToProduction(skipNickCheck = false) {
         }
       }
 
-      const jsonText = buildProjectJson({ slotIndex: i, slotTotal: QTY, baseOrderId: commonOrderIdForUpload });
+      const copies = copiesForSlotIndex(i);
+
+      const jsonText = buildProjectJson({
+        slotIndex: i,
+        slotTotal: SLOTS_COUNT,
+        productionTotal: PROD_QTY,
+        copiesForThisSlot: copies,
+        baseOrderId: commonOrderIdForUpload
+      });
+
+      // render 1 raz dla slota, a potem powielamy logicznie (upload + arkusz)
       const jpgBlob = await renderProductionJpgBlob();
-      slotPrintBlobs.push(jpgBlob);
 
-      const fileBase = `${nickBase}_${String(i + 1).padStart(2, "0")}`;
+      for (let c = 1; c <= copies; c++) {
+        productionBlobs.push(jpgBlob);
 
-      await uploadToServer(
-        jpgBlob,
-        jsonText,
-        `${fileBase}.jpg`,
-        commonOrderIdForUpload,
-        fileBase
-      );
+        const slotPart = SLOTS_COUNT > 1 ? `_s${String(i + 1).padStart(2, "0")}of${SLOTS_COUNT}` : "";
+        const copyPart = copies > 1 ? `_p${String(c).padStart(2, "0")}of${String(copies).padStart(2, "0")}` : "";
+        const fileBase = `${nickBase}${slotPart}${copyPart}`;
+
+        await uploadToServer(
+          jpgBlob,
+          jsonText,
+          `${fileBase}.jpg`,
+          commonOrderIdForUpload,
+          fileBase
+        );
+      }
     }
 
-    if (QTY > 1) {
+    // Arkusz generujemy dla >1 szt. do produkcji (po powieleniu)
+    if (PROD_QTY > 1) {
       const cols = 2;
-      const rows = Math.ceil(QTY / 2);
+      const rows = Math.ceil(PROD_QTY / 2);
 
       try {
-        const sheetBlob = await renderSheetFromSlotBlobsJpg(slotPrintBlobs, cols, rows);
+        const sheetBlob = await renderSheetFromSlotBlobsJpg(productionBlobs, cols, rows);
 
         const sheetBase = `${nickBase}_ARKUSZ_${cols}x${rows}`;
         const sheetJson = JSON.stringify({
-          schema_version: 1,
-          type: "coaster_sheet",
+          schema_version: 2,
+          type: "production_sheet",
           app_version: CACHE_VERSION,
-          order: { base_order_id: commonOrderIdForUpload, nick: nick || "", qty: QTY },
+          order: {
+            base_order_id: commonOrderIdForUpload,
+            nick: nick || "",
+            slots_count: SLOTS_COUNT,
+            production_qty: PROD_QTY
+          },
           layout: { cols, rows },
         }, null, 2);
 
@@ -2611,9 +2712,7 @@ async function sendToProduction(skipNickCheck = false) {
 
     showFinalOverlay(
       "Wysłano do realizacji ✅",
-      QTY > 1
-        ? `Wysłano komplet: ${QTY} szt.`
-        : "Projekt został przekazany do produkcji."
+      `Projekty: ${SLOTS_COUNT} | Produkcja: ${PROD_QTY} szt.`
     );
   } catch (err) {
     derr(err);
@@ -2626,7 +2725,7 @@ async function sendToProduction(skipNickCheck = false) {
 }
 
 if (btnSendToProduction) btnSendToProduction.addEventListener("click", () => sendToProduction(false));
-/* ========END======== [SEKCJA 24] SEND (KOMPLET + ARKUSZ) =========END======== */
+/* ========END======== [SEKCJA 24] SEND (SLOTS + QTY PRODUKCJI + ARKUSZ) =========END======== */
 
 
 
@@ -2697,8 +2796,6 @@ function applyExternalOfferOverrides(cfg) {
     const offerId = String(ctx.offerId || "").trim();
     if (!offerId) return cfg;
 
-    // Minimalne mapowanie offerId → wymuszenia (tylko to, co krytyczne dla UX)
-    // Rozszerzysz później o kolejne produkty/SKU.
     const map = {
       coaster_circle_100: {
         ui: { subtitle: "Projekt 10 cm (okrąg, spad)." },
@@ -2727,12 +2824,9 @@ function applyExternalOfferOverrides(cfg) {
     const ovr = map[offerId];
     if (!ovr) return cfg;
 
-    // Merge (bez rozwalania backendu)
     const next = { ...cfg };
     next.ui = { ...(cfg.ui || {}), ...(ovr.ui || {}) };
     next.product = { ...(cfg.product || {}), ...(ovr.product || {}) };
-
-    // Jeśli backend podał inne shape_options, to offerId ma pierwszeństwo (UX)
     if (ovr.product?.shape_options) next.product.shape_options = ovr.product.shape_options;
 
     return next;
@@ -2756,7 +2850,6 @@ function applyExternalOfferOverrides(cfg) {
     btn.textContent = "↺ Reset projektu";
     btn.title = "Wyczyść zapisane zdjęcia/sloty dla tego zamówienia na tym urządzeniu";
 
-    // Bez zależności od CSS — ma działać wszędzie
     btn.style.position = "fixed";
     btn.style.right = "12px";
     btn.style.bottom = "12px";
@@ -2790,18 +2883,15 @@ function applyExternalOfferOverrides(cfg) {
     if (!ok) return;
 
     try {
-      // zatrzymaj opóźnione commity
       if (wheelTimer) { window.clearTimeout(wheelTimer); wheelTimer = 0; }
       commitGestureIfActive();
 
-      // usuń zapisy (nowy + stary klucz migracji)
       try {
         localStorage.removeItem(slotKeyBase());
         localStorage.removeItem(slotKeyBaseV1());
       } catch {}
 
-      // reset runtime stanu slotów
-      slots = new Array(QTY).fill(null).map(() => ({
+      slots = new Array(SLOTS_COUNT).fill(null).map(() => ({
         photoDataUrl: "",
         shape: "square",
         templateId: "",
@@ -2812,20 +2902,17 @@ function applyExternalOfferOverrides(cfg) {
         freeMove: false,
       }));
 
-      // reset historii per-slot (jeśli istnieje)
       if (typeof historyBySlot !== "undefined") {
-        historyBySlot = Array.from({ length: QTY }, () => ({ stack: [], index: -1 }));
+        historyBySlot = Array.from({ length: SLOTS_COUNT }, () => ({ stack: [], index: -1 }));
       }
       if (typeof uploadSeq !== "undefined") {
-        uploadSeq++; // unieważnij ewentualne trwające uploady
+        uploadSeq++;
       }
 
-      // wyczyść bieżący runtime widoku
       currentSlot = 0;
       slotApplySeq++;
       await applySlotState(slotApplySeq);
 
-      // zapisz świeży stan (pusty)
       saveSlotsToLocal();
 
       markClean();
@@ -2846,8 +2933,8 @@ function applyExternalOfferOverrides(cfg) {
   applyNickFromUrlIfEmpty();
   syncFreeMoveButton();
 
-  slots = new Array(QTY).fill(null).map(() => ({
-    photoDataUrl: "", // ORYGINAŁ (DataURL)
+  slots = new Array(SLOTS_COUNT).fill(null).map(() => ({
+    photoDataUrl: "",
     shape: "square",
     templateId: "",
     rotationDeg: 0,
@@ -2859,8 +2946,8 @@ function applyExternalOfferOverrides(cfg) {
 
   migrateSlotsKeyIfNeeded();
   const saved = loadSlotsFromLocal();
-  if (saved && saved.length === QTY) {
-    for (let i = 0; i < QTY; i++) {
+  if (saved && saved.length === SLOTS_COUNT) {
+    for (let i = 0; i < SLOTS_COUNT; i++) {
       const s = saved[i] || {};
       slots[i] = {
         ...slots[i],
@@ -2892,17 +2979,14 @@ function applyExternalOfferOverrides(cfg) {
 
     const extOfferId = getOfferIdFromUrl();
 
-    // Minimalne mapowanie offerId → preset (rozszerzysz później)
     let preset = MANUAL_PRESETS[0];
     if (extOfferId) {
-      // przykłady: dopasuj pod swoje offerId z maila Niezbędnika
       if (extOfferId === "coaster_square_100_r5") preset = MANUAL_PRESETS.find(p => p.id === "coaster_square_100_r5") || preset;
       if (extOfferId === "coaster_circle_100") preset = MANUAL_PRESETS.find(p => p.id === "coaster_circle_100") || preset;
     }
 
     const manualCfg = normalizeProductConfig(preset, { token: "", mode: "manual" });
-        await applyProductConfig(applyExternalOfferOverrides(manualCfg));
-
+    await applyProductConfig(applyExternalOfferOverrides(manualCfg));
 
     toast("Backend/token niedostępny — uruchomiono tryb ręczny.");
   }
@@ -2915,7 +2999,6 @@ function applyExternalOfferOverrides(cfg) {
   pushHistory();
   markClean();
 
-  // przycisk resetu projektu (dla testów i dla klientów)
   const resetBtn = ensureResetProjectButton();
   resetBtn.disabled = false;
   resetBtn.addEventListener("click", (e) => {
@@ -2923,9 +3006,9 @@ function applyExternalOfferOverrides(cfg) {
     resetProjectNow();
   });
 
-  dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, QTY });
+  dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, SLOTS_COUNT, PROD_QTY });
 })();
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-02 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-03 === */
