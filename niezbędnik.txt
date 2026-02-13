@@ -1,3 +1,76 @@
+START ------------- kod wiadomości niezbędnika -------------------
+
+{% set hour = (now|to_datetime).hour %}
+
+{% if hour >= 18 %}
+Dobry wieczór! 😊🧩
+{% else %}
+Dzień dobry! 😊🧩
+{% endif %}
+
+{% if order.payment.type == "CASH_ON_DELIVERY" %}
+Super wiadomość — zabieramy się za realizację Twojego zamówienia z płatnością przy odbiorze 📦🙂
+{% else %}
+Dziękujemy! Otrzymaliśmy Twoją wpłatę i rozpoczynamy realizację zamówienia 💳✅
+{% endif %}
+
+{# --- Grupy produktów --- #}
+{% set SKU_PODKLADKI = "SKU_PODKLADKI" %}
+
+{% set ns = namespace(coasters_qty=0, has_coasters=false, has_other=false) %}
+
+{% for lineItem in order.lineItems %}
+  {% if lineItem.offer.external.id == SKU_PODKLADKI %}
+    {% set ns.has_coasters = true %}
+    {% set ns.coasters_qty = ns.coasters_qty + (lineItem.quantity | int) %}
+  {% else %}
+    {% set ns.has_other = true %}
+  {% endif %}
+{% endfor %}
+
+🧩 **Twoje zamówienie:**
+{% for lineItem in order.lineItems %}
+- {{ lineItem.offer.name | default("Produkt") }}
+  👉 {{ lineItem.quantity }} × {{ lineItem.price.amount }} {{ lineItem.price.currency|get_currency_symbol }}
+{% endfor %}
+
+{# --- Sekcja: Podkładki (link do edytora) --- #}
+{% if ns.has_coasters %}
+—
+🧩 **Podkładki — projekt online**
+Aby przygotować podkładki do druku, zaprojektuj zestaw w naszym edytorze:
+👉 TU_WSTAW_LINK?qty={{ ns.coasters_qty }}
+
+Prosimy używać możliwie najlepszej jakości zdjęć — od tego zależy ostrość wydruku. Słaba jakość pliku może być widoczna na gotowym produkcie.
+Przesłane projekty realizujemy dokładnie w takiej formie, w jakiej zostaną zapisane — nie ingerujemy w układ ani jakość zdjęć.
+{% endif %}
+
+{# --- Sekcja: Pozostałe produkty (wysłanie zdjęć) --- #}
+{% if ns.has_other %}
+—
+📸 **Pozostałe produkty — prześlij zdjęcia**
+Abyśmy mogli przygotować zamówienie do realizacji, prosimy o przesłanie zdjęć w wiadomości Allegro lub mailowo: office@puzzla.pl
+
+Prosimy używać możliwie najlepszej jakości zdjęć — słaba jakość pliku będzie widoczna na wydruku.
+Materiały realizujemy dokładnie w takiej formie, w jakiej zostaną dostarczone — nie ingerujemy w zdjęcia.
+
+PPH Puzzla Grzegorz Borys  
+ul. Walczaka 25  
+66-400 Gorzów Wlkp.  
+tel. +48 662 827 331  
+office@puzzla.pl
+{% endif %}
+
+Zamówienie zostało złożone z konta:
+👤 {{ order.buyer.login | default("Kupujący") }}
+
+Jeśli chcesz, sprawdź proszę, czy dane do wysyłki są poprawne — dzięki temu paczka dotrze bez problemu 📬😊
+
+Pozdrawiamy serdecznie  
+Zespół Puzzla (obsługa sklepu {{ seller.login | default("Sprzedawca") }} na Allegro) 🧩
+
+END ------------- kod wiadomości niezbędnika -------------------
+
 ----------------------------Treść zależna od konta Allegro Sprzedawcy.
 
 {% if seller.login == 'login_allegro_1' %}
@@ -201,76 +274,6 @@ Filtry służą do sekwencyjnej modyfikacji danych wejściowych.
 
 Lista wbudowanych filtrów - https://jinja.palletsprojects.com/en/2.11.x/templates/#list-of-builtin-filters
 --------------------------------------------------------------------------------------------------------------
-
-Mój komunikat z niezbędnikasprzedawcy
-{% set hour = (now|to_datetime).hour %}
-
-{% if hour >= 18 %}
-Dobry wieczór! 😊🧩
-{% else %}
-Dzień dobry! 😊🧩
-{% endif %}
-
-{% if order.payment.type == "CASH_ON_DELIVERY" %}
-Super wiadomość — zabieramy się za realizację Twojego zamówienia z płatnością przy odbiorze 📦🙂
-{% else %}
-Dziękujemy! Otrzymaliśmy Twoją wpłatę i rozpoczynamy realizację zamówienia 💳✅
-{% endif %}
-
-{# --- Grupy produktów --- #}
-{% set SKU_PODKLADKI = "SKU_PODKLADKI" %}
-
-{% set ns = namespace(coasters_qty=0, has_coasters=false, has_other=false) %}
-
-{% for lineItem in order.lineItems %}
-  {% if lineItem.offer.external.id == SKU_PODKLADKI %}
-    {% set ns.has_coasters = true %}
-    {% set ns.coasters_qty = ns.coasters_qty + (lineItem.quantity | int) %}
-  {% else %}
-    {% set ns.has_other = true %}
-  {% endif %}
-{% endfor %}
-
-🧩 **Twoje zamówienie:**
-{% for lineItem in order.lineItems %}
-- {{ lineItem.offer.name | default("Produkt") }}
-  👉 {{ lineItem.quantity }} × {{ lineItem.price.amount }} {{ lineItem.price.currency|get_currency_symbol }}
-{% endfor %}
-
-{# --- Sekcja: Podkładki (link do edytora) --- #}
-{% if ns.has_coasters %}
-—
-🧩 **Podkładki — projekt online**
-Aby przygotować podkładki do druku, zaprojektuj zestaw w naszym edytorze:
-👉 TU_WSTAW_LINK?qty={{ ns.coasters_qty }}
-
-Prosimy używać możliwie najlepszej jakości zdjęć — od tego zależy ostrość wydruku. Słaba jakość pliku może być widoczna na gotowym produkcie.
-Przesłane projekty realizujemy dokładnie w takiej formie, w jakiej zostaną zapisane — nie ingerujemy w układ ani jakość zdjęć.
-{% endif %}
-
-{# --- Sekcja: Pozostałe produkty (wysłanie zdjęć) --- #}
-{% if ns.has_other %}
-—
-📸 **Pozostałe produkty — prześlij zdjęcia**
-Abyśmy mogli przygotować zamówienie do realizacji, prosimy o przesłanie zdjęć w wiadomości Allegro lub mailowo: office@puzzla.pl
-
-Prosimy używać możliwie najlepszej jakości zdjęć — słaba jakość pliku będzie widoczna na wydruku.
-Materiały realizujemy dokładnie w takiej formie, w jakiej zostaną dostarczone — nie ingerujemy w zdjęcia.
-
-PPH Puzzla Grzegorz Borys  
-ul. Walczaka 25  
-66-400 Gorzów Wlkp.  
-tel. +48 662 827 331  
-office@puzzla.pl
-{% endif %}
-
-Zamówienie zostało złożone z konta:
-👤 {{ order.buyer.login | default("Kupujący") }}
-
-Jeśli chcesz, sprawdź proszę, czy dane do wysyłki są poprawne — dzięki temu paczka dotrze bez problemu 📬😊
-
-Pozdrawiamy serdecznie  
-Zespół Puzzla (obsługa sklepu {{ seller.login | default("Sprzedawca") }} na Allegro) 🧩
 --------------------------------------------------------------------------------------------------------------
 
 
