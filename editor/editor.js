@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-13-01";
+const CACHE_VERSION = "2026-02-13-02";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
