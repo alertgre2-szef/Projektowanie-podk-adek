@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer .
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-13-05
+ * VERSION: 2026-02-13-06
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-13-05";
+const CACHE_VERSION = "2026-02-13-06";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -332,32 +332,49 @@ function slotUiEls() {
   };
 }
 
+function joinNumsPolish(nums) {
+  const a = nums.map(String);
+  if (a.length === 0) return "";
+  if (a.length === 1) return a[0];
+  if (a.length === 2) return `${a[0]} i ${a[1]}`;
+  return `${a.slice(0, -1).join(", ")} i ${a[a.length - 1]}`;
+}
+
 /**
  * UX: baner ma działać ZAWSZE:
- * - slots=1: "Brakuje zdjęcia..." / "Projekt gotowy..."
- * - slots>1: "Brakuje projektów..." / "Projekty gotowe..."
+ * - pokazuje konkretnie brakujące numery podkładek
+ * - gdy komplet: zielony + duży napis "Projekt gotowy do wysłania."
  */
-function updateCompletionBanner(done, total) {
+function updateCompletionBanner() {
   const els = slotUiEls();
   if (!els.banner) return;
 
   els.banner.style.display = "";
 
-  const isOk = done >= total;
+  const missing = [];
+  for (let i = 0; i < SLOTS_COUNT; i++) {
+    if (!slots[i] || !slots[i].photoDataUrl) missing.push(i + 1);
+  }
+
+  const isOk = missing.length === 0;
 
   els.banner.classList.toggle("completionBanner--ok", isOk);
   els.banner.classList.toggle("completionBanner--need", !isOk);
 
-  if (total <= 1) {
-    els.banner.textContent = isOk
-      ? "Projekt gotowy do wysyłki ✅"
-      : "Brakuje zdjęcia — wgraj je, aby wysłać projekt.";
+  // duży napis tylko gdy OK
+  els.banner.style.fontSize = isOk ? "18px" : "";
+  els.banner.style.fontWeight = isOk ? "800" : "";
+
+  if (isOk) {
+    els.banner.textContent = "Projekt gotowy do wysłania. ✅";
     return;
   }
 
-  els.banner.textContent = isOk
-    ? "Projekty gotowe do wysyłki ✅"
-    : `Brakuje projektów — uzupełnij zdjęcia (${done}/${total}).`;
+  if (missing.length === 1) {
+    els.banner.textContent = `Brakuje zdjęcia w podkładce nr ${missing[0]}.`;
+  } else {
+    els.banner.textContent = `Brakuje zdjęcia w podkładkach nr ${joinNumsPolish(missing)}.`;
+  }
 }
 
 function updateSlotUi() {
@@ -377,7 +394,7 @@ function updateSlotUi() {
   if (els.prog) els.prog.textContent = (SLOTS_COUNT > 1) ? `Ukończono: ${done} / ${SLOTS_COUNT}` : "";
 
   // baner zawsze
-  updateCompletionBanner(done, SLOTS_COUNT);
+  updateCompletionBanner();
 
   const disabledByBusy = productionLocked || isApplyingSlot;
 
@@ -518,6 +535,7 @@ function wireSlotUi() {
 }
 /* ========END======== [SEKCJA 04] SLOTY (SLOTS_COUNT) + LOCALSTORAGE =========END======== */
 /* KONIEC BLOKU 04 */
+
 
 
 
@@ -2392,7 +2410,13 @@ async function uploadToServer(blob, jsonText, filename, orderIdForUpload, fileBa
   fd.append("json", jsonText);
 
   const headers = {};
-  if (productConfig?.token) headers["X-Project-Token"] = productConfig.token;
+
+  // FIX 401: token bierzemy z productConfig LUB z URL (fallback)
+  const tokenForHeader =
+    (productConfig?.token ? String(productConfig.token) : "") ||
+    (getQueryParam("token") ? String(getQueryParam("token")) : "");
+
+  if (tokenForHeader) headers["X-Project-Token"] = tokenForHeader;
 
   const uploadUrl = productConfig?.api?.upload_url || `${REPO_BASE}/api/upload.php`;
 
@@ -2412,6 +2436,7 @@ async function uploadToServer(blob, jsonText, filename, orderIdForUpload, fileBa
   return data || { ok: true };
 }
 /* ========END======== [SEKCJA 22] UPLOAD + PROJECT JSON + RENDER PRINT =========END======== */
+
 
 
 
@@ -3012,4 +3037,4 @@ function applyExternalOfferOverrides(cfg) {
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-05 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-06 === */
