@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer .
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-13-01
+ * VERSION: 2026-02-13-02
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -2928,4 +2928,4 @@ function applyExternalOfferOverrides(cfg) {
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-01 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-02 === */
