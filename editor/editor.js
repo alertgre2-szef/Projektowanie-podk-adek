@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer .
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-13-08
+ * VERSION: 2026-02-13-09
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-13-08";
+const CACHE_VERSION = "2026-02-13-09";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -2101,7 +2101,11 @@ function safeFileToken(raw, fallback = "projekt") {
 
   return s || fallback;
 }
+
 function sanitizeFileBase(raw) { return safeFileToken(raw, "projekt"); }
+
+// IMPORTANT: ta funkcja jest używana w SEKCJI 22/24 (sendToProduction / buildProjectJson)
+function sanitizeOrderId(raw) { return safeFileToken(raw, "").slice(0, 60); }
 
 async function exportPreviewWithOverlays() {
   clear();
@@ -2143,6 +2147,7 @@ if (btnDownloadPreview) {
   });
 }
 /* ========END======== [SEKCJA 20] EXPORT (NAZWY + PREVIEW JPG) =========END======== */
+
 
 
 
@@ -3101,4 +3106,4 @@ function applyExternalOfferOverrides(cfg) {
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-07 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-09 === */
