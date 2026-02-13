@@ -321,3 +321,177 @@ Korkowa Foto Podkładka pod Kubek z Nadrukiem Twoim Zdjęciem Korek Naturalny
 Foto Podkładka Kartonowa Kubek Kubki Kwadrat 9cm ze Zdjęcia. Fotopodkładka
 → Pod_Czarna_Kwadrat
 --------------------------------------------------------------------------------------------------------------
+
+
+
+✅ KOD DO WKLEJENIA (Niezbędnik Sprzedawcy / Jinja2)
+
+Wersja z pełną architekturą (podkładki + miejsce na kolejne grupy), ale na teraz aktywnie działa tylko: PODKŁADKI vs RESZTA. Sekcje “inne grupy” nie odpalą się, dopóki nie uzupełnisz ich list SKU.
+
+{# ============================================================
+   PUZZLA — MAIL PO ZAKUPIE (BLOKOWY, ROZWOJOWY, BEZ SPAMU)
+   AKTYWNE TERAZ: PODKŁADKI vs RESZTA
+   GOTOWE NA PRZYSZŁOŚĆ: dodatkowe bloki po uzupełnieniu SKU
+============================================================ #}
+
+{# ========== USTAWIENIA ========== #}
+{% set editor_base_url = "https://TWOJ-EDYTOR-URL.TU/editor" %}
+
+{# SKU PODKŁADEK (external.id) — BEZ PODK50 (hurt) #}
+{% set coasters_skus = [
+  "Pod_Korek-Karton_Okrągła",
+  "6x_Pod_Czarna_Okrągła",
+  "Pod_Korek-Karton_Kwadrat",
+  "Pod_Beermat_Okrągła",
+  "Pod_Czarna_Okrągła",
+  "Pod_Beermat_Kwadrat",
+  "Pod_Drewniana_Kwadrat",
+  "Pod_Drewniana_Okrągła",
+  "6xPod_Beermat_Kwadrat",
+  "Pod_Korek_Kwadrat",
+  "6xPod_Korek_Kwadrat",
+  "6xPod_Czarna_Kwadrat",
+  "Pod_Czarna_Kwadrat"
+] %}
+
+{# Mapowanie SKU -> “ładna nazwa” (fallback: lineItem.offer.name) #}
+{% set pretty_name_by_sku = {
+  "Pod_Korek-Karton_Okrągła": "Foto podkładka okrągła (korek + karton)",
+  "Pod_Korek-Karton_Kwadrat": "Foto podkładka kwadratowa (korek + karton)",
+  "Pod_Beermat_Okrągła": "Foto podkładka okrągła Beermat",
+  "Pod_Beermat_Kwadrat": "Foto podkładka kwadratowa Beermat",
+  "Pod_Czarna_Okrągła": "Foto podkładka okrągła (czarna tektura)",
+  "Pod_Czarna_Kwadrat": "Foto podkładka kwadratowa (czarna tektura)",
+  "Pod_Drewniana_Okrągła": "Foto podkładka okrągła (drewniana)",
+  "Pod_Drewniana_Kwadrat": "Foto podkładka kwadratowa (drewniana)",
+  "Pod_Korek_Kwadrat": "Foto podkładka kwadratowa (korek naturalny)",
+
+  "6xPod_Beermat_Kwadrat": "Komplet 6 podkładek pod kubek kwadratowych Beermat",
+  "6xPod_Korek_Kwadrat": "Komplet 6 podkładek pod kubek kwadratowych (korek naturalny)",
+  "6xPod_Czarna_Kwadrat": "Komplet 6 podkładek pod kubek kwadratowych (czarna tektura)",
+  "6x_Pod_Czarna_Okrągła": "Komplet 6 podkładek pod kubek okrągłych (czarna tektura)"
+} %}
+
+{# ======= MIEJSCE NA PRZYSZŁE GRUPY (na razie puste) =======
+   Dopóki listy są puste, te sekcje się NIE URUCHOMIĄ.
+#}
+{% set custom_skus = [] %}   {# np. fotopuzzle / wydruki personalizowane itd. #}
+{% set ready_skus = [] %}    {# np. gotowe puzzle / gotowe plakaty itd. #}
+
+
+{# ========== POWITANIE (login + humor w nocy) ========== #}
+{% set hour = (now|to_localtime).hour %}
+{% if hour >= 22 or hour <= 4 %}
+Dobry wieczór {{ order.buyer.login }} 🌙  
+O widzę… ktoś tu nie może spać — a my już szykujemy Twoje zamówienie! 😄
+{% else %}
+Dzień dobry {{ order.buyer.login }} 😊🧩  
+Dziękujemy za zamówienie — już działamy!
+{% endif %}
+
+{# ========== PODSUMOWANIE (bez cen) ========== #}
+
+<b>Podsumowanie zamówienia:</b>
+{% for lineItem in order.lineItems %}
+- {{ lineItem.offer.name }} × {{ lineItem.quantity }}
+{% endfor %}
+
+
+{# ========== KLASYFIKACJA ========== #}
+{% set ns = namespace(coasters=[], other=[], custom=[], ready=[]) %}
+
+{% for lineItem in order.lineItems %}
+  {% set sku = lineItem.offer.external.id %}
+
+  {% if sku in coasters_skus %}
+    {% set pretty = pretty_name_by_sku.get(sku, lineItem.offer.name) %}
+    {% set is_set = (sku|string).startswith("6x") %}
+    {# Link per pozycja (bez SKU, bo może mieć polskie znaki; używamy offerId + qty) #}
+    {% set editor_link = editor_base_url ~ "?order=" ~ order.id ~ "&offerId=" ~ lineItem.offer.id ~ "&qty=" ~ lineItem.quantity %}
+
+    {% set ns.coasters = ns.coasters + [{
+      "name": pretty,
+      "qty": lineItem.quantity,
+      "is_set": is_set,
+      "link": editor_link
+    }] %}
+
+  {% else %}
+    {# AKTYWNE TERAZ: wszystko poza podkładkami wpada do "other" #}
+    {% set ns.other = ns.other + [{
+      "name": lineItem.offer.name,
+      "qty": lineItem.quantity
+    }] %}
+
+    {# PRZYSZŁOŚĆ (na razie nieaktywne, bo listy SKU są puste) #}
+    {% if sku in custom_skus %}
+      {% set ns.custom = ns.custom + [{"name": lineItem.offer.name, "qty": lineItem.quantity}] %}
+    {% endif %}
+    {% if sku in ready_skus %}
+      {% set ns.ready = ns.ready + [{"name": lineItem.offer.name, "qty": lineItem.quantity}] %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
+
+
+{# ========== BLOK A — PODKŁADKI (EDYTOR) ========== #}
+{% if ns.coasters|length > 0 %}
+<hr>
+<b>🟦 Podkładki — przygotowanie projektu w edytorze</b>
+
+Zakupiłeś(aś):
+{% for it in ns.coasters %}
+- {{ it.name }} × {{ it.qty }}
+  {% if it.is_set %}
+  → Do kompletu wystarczy <b>1 zdjęcie</b>.
+  {% endif %}
+  → Link do edytora dla tej pozycji:
+  {{ it.link }}
+{% endfor %}
+
+<b>Jak skorzystać z edytora (krótko):</b>
+1) Otwórz link przy danej pozycji.  
+2) Dodaj zdjęcie i ustaw kadr (przesuń / powiększ / pomniejsz).  
+3) Sprawdź podgląd, zatwierdź i wyślij projekt.
+
+<b>Ważne o jakości zdjęcia:</b>
+Najlepszy efekt uzyskamy z <b>oryginalnych zdjęć</b> (prosto z telefonu/aparatu).  
+Komunikatory (Messenger/WhatsApp itp.) często automatycznie pogarszają jakość — jeśli możesz, dodaj zdjęcie bezpośrednio w edytorze lub wyślij jako plik.
+{% endif %}
+
+
+{# ========== BLOK B — RESZTA PRODUKTÓW (NEUTRALNY) ========== #}
+{% if ns.other|length > 0 %}
+<hr>
+<b>🟩 Pozostałe produkty</b>
+
+W zamówieniu są również:
+{% for it in ns.other %}
+- {{ it.name }} × {{ it.qty }}
+{% endfor %}
+
+Jeśli któryś z powyższych produktów wymaga personalizacji (np. dodania zdjęcia), prosimy o przesłanie plików w odpowiedzi na tę wiadomość lub w wiadomości Allegro.
+
+<b>Ważne o jakości zdjęcia:</b>
+Najlepszy efekt uzyskamy z <b>oryginalnych zdjęć</b>.  
+Komunikatory często obniżają jakość — jeśli możesz, wyślij zdjęcia jako pliki (bez kompresji).
+{% endif %}
+
+
+{# ========== STOPKA (ZALEŻNA OD KONTA) ========== #}
+<hr>
+{% if seller.login == 'login_allegro_1' %}
+Pozdrawiamy serdecznie,  
+Sklep 1  
+tel. 111 111 111
+{% elif seller.login == 'login_allegro_2' %}
+Pozdrawiamy serdecznie,  
+Sklep 2  
+tel. 222 222 222
+{% else %}
+Pozdrawiam serdecznie,  
+Grzegorz Borys  
+Puzzla.pl — www.puzzla.pl
+{% endif %}
+
+<!-- KONIEC PLIKU (mail_template_v2026-02-13) -->
