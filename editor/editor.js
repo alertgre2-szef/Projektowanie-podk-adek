@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer .
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-13-03
+ * VERSION: 2026-02-13-05
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-13-03";
+const CACHE_VERSION = "2026-02-13-05";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -2567,12 +2567,12 @@ async function ensureAllSlotsHavePhotosOrConfirm() {
   if (missing.length === 0) return true;
 
   const label = missing.length === 1
-    ? `Brakuje zdjęcia w projekcie nr ${missing[0]}.`
-    : `Brakuje zdjęcia w projektach nr ${joinNumsPolish(missing)}.`;
+    ? `Brakuje zdjęcia w podkładce nr ${missing[0]}.`
+    : `Brakuje zdjęcia w podkładkach nr ${joinNumsPolish(missing)}.`;
 
   window.alert(
     `${label}\n\n` +
-    `Aby wysłać zamówienie, uzupełnij brakujące projekty.\n` +
+    `Aby wysłać zamówienie, uzupełnij brakujące podkładki.\n` +
     `Użyj przycisków „Poprzednia / Następna”.`
   );
 
@@ -2615,14 +2615,14 @@ async function sendToProduction(skipNickCheck = false) {
     persistCurrentSlotState();
     saveSlotsToLocal();
 
-    const urlOrderIdRaw = getOrderIdFromUrl();
-    const baseOrderId =
-      sanitizeOrderId(urlOrderIdRaw) ||
-      sanitizeOrderId(nick) ||
-      "";
+    // KATALOG uploadu ma wynikać z NICKU (stabilnie)
+    const nickBase = sanitizeFileBase(nick || "projekt");
+    const uploadDirId = nickBase;
 
-    const nickBase = sanitizeFileBase(nick || baseOrderId || "projekt");
-    const commonOrderIdForUpload = baseOrderId || nickBase || "projekt";
+    // order_id (jeśli istnieje w URL) – zostaje w JSON jako metadane
+    const urlOrderIdRaw = getOrderIdFromUrl();
+    const baseOrderId = sanitizeOrderId(urlOrderIdRaw) || "";
+    const orderIdForJson = baseOrderId || nickBase;
 
     // zbieramy dokładnie tyle renderów, ile sztuk do produkcji (po powieleniu)
     const productionBlobs = [];
@@ -2649,7 +2649,7 @@ async function sendToProduction(skipNickCheck = false) {
         slotTotal: SLOTS_COUNT,
         productionTotal: PROD_QTY,
         copiesForThisSlot: copies,
-        baseOrderId: commonOrderIdForUpload
+        baseOrderId: orderIdForJson
       });
 
       // render 1 raz dla slota, a potem powielamy logicznie (upload + arkusz)
@@ -2666,7 +2666,7 @@ async function sendToProduction(skipNickCheck = false) {
           jpgBlob,
           jsonText,
           `${fileBase}.jpg`,
-          commonOrderIdForUpload,
+          uploadDirId,
           fileBase
         );
       }
@@ -2686,7 +2686,7 @@ async function sendToProduction(skipNickCheck = false) {
           type: "production_sheet",
           app_version: CACHE_VERSION,
           order: {
-            base_order_id: commonOrderIdForUpload,
+            base_order_id: orderIdForJson,
             nick: nick || "",
             slots_count: SLOTS_COUNT,
             production_qty: PROD_QTY
@@ -2698,7 +2698,7 @@ async function sendToProduction(skipNickCheck = false) {
           sheetBlob,
           sheetJson,
           `${sheetBase}.jpg`,
-          commonOrderIdForUpload,
+          uploadDirId,
           sheetBase
         );
       } catch (e) {
@@ -2726,6 +2726,7 @@ async function sendToProduction(skipNickCheck = false) {
 
 if (btnSendToProduction) btnSendToProduction.addEventListener("click", () => sendToProduction(false));
 /* ========END======== [SEKCJA 24] SEND (SLOTS + QTY PRODUKCJI + ARKUSZ) =========END======== */
+
 
 
 
@@ -3011,4 +3012,4 @@ function applyExternalOfferOverrides(cfg) {
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-03 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-05 === */
