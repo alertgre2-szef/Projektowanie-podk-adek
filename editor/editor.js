@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer .
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-13-06
+ * VERSION: 2026-02-13-07
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-13-06";
+const CACHE_VERSION = "2026-02-13-07";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -1024,19 +1024,33 @@ function updateStatusBar() {
 function refreshExportButtons() {
   const hasPhoto = !!uploadedImg;
 
+  // DEMO = brak tokena (albo token pusty) => nie wysyłamy na serwer
+  const tokenFromUrl = (getQueryParam("token") || "").trim();
+  const tokenEffective = (productConfig?.token || "").trim() || tokenFromUrl;
+  const isDemo = !tokenEffective;
+
   if (btnDownloadPreview) btnDownloadPreview.disabled = !hasPhoto || productionLocked;
 
-  // WYSYŁKA ZAWSZE AKTYWNA (backend + ręczny fallback)
-  if (btnSendToProduction) btnSendToProduction.disabled = productionLocked;
+  // WYSYŁKA: WYŁĄCZONA w demo (bez tokena)
+  if (btnSendToProduction) btnSendToProduction.disabled = productionLocked || isDemo;
 
   if (productionHint) {
     const uploadUrl = productConfig?.api?.upload_url || `${REPO_BASE}/api/upload.php`;
     const modeStr = productConfig?.mode === "backend" ? "Konfiguracja z backendu (token)" : "Tryb ręczny (bez tokena)";
-    productionHint.innerHTML =
-      `${modeStr}. ` +
-      `Wysyłka: <b>aktywna</b> → <code>${uploadUrl}</code><br>` +
-      `Projekty: <b>${SLOTS_COUNT}</b> | Produkcja: <b>${PROD_QTY}</b> szt.<br>` +
-      `Po wysłaniu projekt trafia do produkcji i <b>nie będzie można wprowadzić zmian</b>.`;
+
+    if (isDemo) {
+      productionHint.innerHTML =
+        `Tryb: <b>DEMO</b> (brak tokena). ` +
+        `Możesz testować edytor i pobrać <b>podgląd z watermarkiem</b>.<br>` +
+        `Wysyłka do produkcji: <b>wyłączona</b>.<br>` +
+        `Projekty: <b>${SLOTS_COUNT}</b> | Produkcja: <b>${PROD_QTY}</b> szt.`;
+    } else {
+      productionHint.innerHTML =
+        `${modeStr}. ` +
+        `Wysyłka: <b>aktywna</b> → <code>${uploadUrl}</code><br>` +
+        `Projekty: <b>${SLOTS_COUNT}</b> | Produkcja: <b>${PROD_QTY}</b> szt.<br>` +
+        `Po wysłaniu projekt trafia do produkcji i <b>nie będzie można wprowadzić zmian</b>.`;
+    }
   }
 
   updateSlotUi();
@@ -2061,8 +2075,80 @@ function safeFileToken(raw, fallback = "projekt") {
 function sanitizeFileBase(raw) { return safeFileToken(raw, "projekt"); }
 function sanitizeOrderId(raw) { return safeFileToken(raw, "").slice(0, 60); }
 
+// WATERMARK tylko dla PODGLĄDU (klient testuje edytor)
+function makeWatermarkedPreviewDataUrl() {
+  // bierzemy aktualny obraz z canvasa (photo + ewentualny edit overlay)
+  const srcDataUrl = canvas.toDataURL("image/jpeg", 0.82);
+
+  const w = canvas.width || CANVAS_PX;
+  const h = canvas.height || CANVAS_PX;
+
+  const tmp = document.createElement("canvas");
+  tmp.width = w;
+  tmp.height = h;
+  const tctx = tmp.getContext("2d");
+
+  // tło białe
+  tctx.fillStyle = "#ffffff";
+  tctx.fillRect(0, 0, w, h);
+
+  // rysujemy snapshot canvasa
+  // (szybko i bez ryzyka, że watermark trafi na ekran)
+  const img = new Image();
+  img.src = srcDataUrl;
+
+  // UWAGA: tu blokujemy synchronicznie przez rysowanie po onload – ale export jest na klik, więc ok
+  // Zwrócimy dataURL dopiero po wyrenderowaniu.
+  return new Promise((resolve) => {
+    img.onload = () => {
+      tctx.drawImage(img, 0, 0, w, h);
+
+      // watermark – powtarzalny, ukośny, półprzezroczysty
+      const mark = "PUZZLA.PL • PODGLĄD • NIE DO DRUKU";
+      const fontPx = Math.max(22, Math.round(w * 0.030));
+      tctx.save();
+      tctx.translate(w / 2, h / 2);
+      tctx.rotate(-Math.PI / 4); // -45°
+      tctx.textAlign = "center";
+      tctx.textBaseline = "middle";
+      tctx.font = `800 ${fontPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+
+      // delikatna obwódka + wypełnienie (czytelne na jasnym i ciemnym)
+      tctx.globalAlpha = 0.22;
+      tctx.lineWidth = Math.max(2, Math.round(fontPx * 0.18));
+      tctx.strokeStyle = "#ffffff";
+      tctx.fillStyle = "#111827";
+
+      const stepX = Math.max(260, Math.round(w * 0.28));
+      const stepY = Math.max(180, Math.round(h * 0.22));
+
+      for (let y = -h; y <= h; y += stepY) {
+        for (let x = -w; x <= w; x += stepX) {
+          tctx.strokeText(mark, x, y);
+          tctx.fillText(mark, x, y);
+        }
+      }
+
+      // mocniejszy centralny watermark
+      tctx.globalAlpha = 0.35;
+      tctx.font = `900 ${Math.max(fontPx + 10, Math.round(w * 0.045))}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+      tctx.strokeText("PODGLĄD", 0, 0);
+      tctx.fillText("PODGLĄD", 0, 0);
+
+      tctx.restore();
+
+      resolve(tmp.toDataURL("image/jpeg", 0.82));
+    };
+
+    img.onerror = () => {
+      // fallback: jeśli coś poszło nie tak, oddajemy zwykły preview
+      resolve(canvas.toDataURL("image/jpeg", 0.82));
+    };
+  });
+}
+
 if (btnDownloadPreview) {
-  btnDownloadPreview.addEventListener("click", () => {
+  btnDownloadPreview.addEventListener("click", async () => {
     if (!uploadedImg) {
       toast("Najpierw wgraj zdjęcie, aby pobrać podgląd.");
       return;
@@ -2072,13 +2158,17 @@ if (btnDownloadPreview) {
     const nick = sanitizeFileBase(nickInput?.value);
     const pid = productConfig?.product?.type ? safeFileToken(productConfig.product.type, "produkt") : "produkt";
     const slotSuffix = SLOTS_COUNT > 1 ? `_s${String(currentSlot + 1).padStart(2, "0")}of${SLOTS_COUNT}` : "";
-    a.download = `${nick}_${pid}${slotSuffix}_preview.jpg`;
-    a.href = canvas.toDataURL("image/jpeg", 0.70);
+    a.download = `${nick}_${pid}${slotSuffix}_PODGLAD_watermark.jpg`;
+
+    const dataUrl = await makeWatermarkedPreviewDataUrl();
+    a.href = dataUrl;
+
     a.click();
-    toast("Zapisano PODGLĄD JPG ✅");
+    toast("Zapisano PODGLĄD JPG (watermark) ✅");
   });
 }
 /* ========END======== [SEKCJA 20] EXPORT (NAZWY + PREVIEW JPG) =========END======== */
+
 
 
 
@@ -3037,4 +3127,4 @@ function applyExternalOfferOverrides(cfg) {
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-06 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-07 === */
