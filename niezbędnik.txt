@@ -578,7 +578,24 @@ architektura gotowa na kolejne grupy
 edytor będzie obsługiwał parametry URL
 
 Koniec opisu projektu
+{# =====================================================================
+  🔁 AUTOMATYCZNY WSKAŹNIK: CZY TRZEBA ZAKTUALIZOWAĆ OPIS / TEMPLATE?
+  Jeśli zmienisz COŚ z listy poniżej → ZAKTUALIZUJ “OPIS PROJEKTU” oraz
+  (jeśli trzeba) listy SKU / mapowania / parametry linku.
 
+  TRIGGERY AKTUALIZACJI (jeśli dotyczy choć jeden punkt):
+  1) Zmiana listy SKU podkładek (coasters_skus) lub dodanie nowego SKU.
+  2) Zmiana logiki “komplet 6 szt.” (np. prefiks 6x / inne zestawy).
+  3) Zmiana parametrów linku do edytora (order/offerId/qty/buyer/token).
+  4) Zmiana domeny lub ścieżki edytora (editor_base_url).
+  5) Zmiana mapowania produktu po stronie edytora (np. kółko/kwadrat, nowe produkty).
+  6) Zmiana sposobu, jak klient wysyła projekt (workflow/UX, komunikaty).
+  7) Zmiana wersji template maila lub wersji edytora, na którą się powołujemy.
+
+  WERSJA DOKUMENTU / TEMPLATE:
+  - mail_template_version: 2026-02-13
+  - opis_projektu_version: 2026-02-13
+===================================================================== #}
 {# END======= Opis projektu =======END #}
 {# END======= Opis projektu =======END #}
 {# END======= Opis projektu =======END #}
