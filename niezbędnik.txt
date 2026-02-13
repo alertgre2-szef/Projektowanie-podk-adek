@@ -1,11 +1,19 @@
----------------------------Wyświetlenie listy przedmiotów zamówienia.-----------------------------------------------
-Dziękujemy. Kupiłeś u nas następujące przedmioty:
-{% for lineItem in order.lineItems %}
-    {{ lineItem.offer.name }} ({{lineItem.price.amount}} zł) x {{lineItem.quantity}}
-{% endfor %}
+----------------------------Treść zależna od konta Allegro Sprzedawcy.
 
+{% if seller.login == 'login_allegro_1' %}
+    Pozdrawiamy serdecznie
+    Sklep 1
+    tel. 111 111 111
+{% elif seller.login == 'login_allegro_2' %}
+    Pozdrawiamy serdecznie
+    Sklep 2
+    tel.222 222 222
+{% else %} {# jeśli jeszcze inny login to wyświetl go #}
+    Pozdrawiamy serdecznie
+    {{seller.login}}
+{% endif %}
 
-----------------------------Treść zależna od ID lub SKU oferty-----------------------------------------------
+----------------------------Treść zależna od ID lub SKU oferty, która wchodzi w skład zamówienia.
 
 Treść zależna od ID lub SKU oferty, która wchodzi w skład zamówienia.
 {% for lineItem in order.lineItems %}
@@ -16,6 +24,182 @@ Treść zależna od ID lub SKU oferty, która wchodzi w skład zamówienia.
     {% if lineItem.offer.external.id == 'SKU_4232' %}Przedmiot jest chwilowo niedostępny. Wysyłka może się troszkę opóźnić. Jeśli to problem prosimy o kontakt.{% endif%}
 {% endfor %}
 
+----------------------------Treść zależna od ID oferty, która wchodzi w skład zamówienia (bardziej rozbudowany przykład).
+
+{% for lineItem in order.lineItems %}
+    <b>{{ lineItem.offer.name }}</b>
+    {% if lineItem.offer.id == '11232675880' or lineItem.offer.id == '11232675881' or lineItem.offer.id == '11232675882' %}
+     Kupiłeś ofertę o ID 11232675880 lub 11232675881 lub 11232675882.
+    {% elif lineItem.offer.id == '11232675885' %}
+        Kupiłeś ofertę o ID 11232675885.
+    {% elif lineItem.offer.id == '11232675886' %}
+        Kupiłeś ofertę o ID 11232675886.
+    {% else %}
+        Kupiłeś inną ofertę.
+    {% endif%}
+{% endfor %}
+
+----------------------------Treść zależna od aktualnej godziny (pory odpowiadania na wiadomość).
+
+{% set hour = (now|to_localtime).hour %}
+{% if hour >= 18 or hour <= 3 %}
+Dobry wieczór
+{% else %}
+Dzień dobry
+{% endif %}
+
+----------------------------Treść zależna od dnia tygodnia.
+
+{# zapisanie numeru dnia tygodnia pod zmienną weekday () #}
+{% set weekday = (now|to_localtime).weekday() %}
+{% if weekday == 0 %} {# pon. #}
+  Dzisiaj jest poniedziałek.
+{% elif weekday == 1 %} {# wt. #}
+  Dzisiaj jest wtorek.
+{% elif weekday == 2 %} {# śr. #}
+  Dzisiaj jest środę.
+{% elif weekday == 3 %} {# czw. #}
+  Dzisiaj jest czwartek.
+{% elif weekday == 4 %} {# pt. #}
+  Dzisiaj jest piątek.
+{% elif weekday == 5 %} {# sob. #}
+  Dzisiaj jest sobotę.
+{% elif weekday == 6 %} {# niedz. #}
+  Dzisiaj jest niedzielę.
+{% endif %}
+
+{% if weekday in [0,1,2,3,4] %}
+pon.-pt.
+{% else %}
+sob.-niedz.
+{% endif %}
+
+----------------------------Treść zależna od dnia świątecznego.
+
+{% set is_today_holiday = (now|is_holiday) %}
+{% if is_today_holiday %}
+Dziś mamy święto i nie pracujemy
+{% endif %}
+
+----------------------------Wyświetlenie listy przedmiotów zamówienia.
+
+Dziękujemy. Kupiłeś u nas następujące przedmioty:
+{% for lineItem in order.lineItems %}
+    {{ lineItem.offer.name }} ({{lineItem.price.amount}} zł) x {{lineItem.quantity}}
+{% endfor %}
+
+----------------------------Dodanie kodu aktywacyjnego z przykładowej grupy o nazwie "moja_grupa_kodow".
+
+{% get_activation_code 'moja_grupa_kodow' %}
+
+----------------------------Dodanie kodów aktywacyjnych z różnych grup kodów zależnych od id zakupionych ofert z uwzględnieniem liczby zakupionych sztuk.
+
+{% for lineItem in order.lineItems %}
+    <b>{{ lineItem.offer.name }}</b>
+    {% if lineItem.offer.id == '6207050700' %}
+      {% for idx in range(lineItem.quantity) %}
+        {% get_activation_code 'moja_grupa_kodow1' %}
+      
+     {% endfor %}
+    {% elif lineItem.offer.id == '6207301791' %}
+      {% for idx in range(lineItem.quantity) %}
+        {% get_activation_code 'moja_grupa_kodow2' %}
+        
+      {% endfor %}
+    {% endif%}
+{% endfor %}
+
+----------------------------Wysłanie SMS-a na wskazany numer telefonu.
+
+{# wysłanie sms-a na wskazany numer telefonu #}
+{% send_sms '500400300' 'Sprzedałeś przedmiot na Allegro.' %}
+{# lub wysłanie sms-a na numer kupującego #}
+{% set sms_message =  "Dziękujemy za zakupu w sklepie {0} na allegro.".format(seller.login) %}
+{% send_sms order.buyer.phoneNumber sms_message %}
+
+----------------------------Wysłanie powiadomienia e-mail na wskazany adres poczty internetowej.
+
+{# wysłanie powiadomienia e-mail na wskazany adres poczty #}
+{# podajemy 3 kolejne parametry: adres email, tytuł, treść wiadomości #}
+{% send_email 'mojemail@example.com' 'Powiadomienia z Niezbędnika Sprzedawcy' 'Sprzedałeś przedmiot.' %}
+
+----------------------------Pobranie numerów śledzenia przesyłek dla wskazanego id zamówienia.
+
+{% get_tracking_numbers order.id %}
+{# w odpowiedzi otrzymamy strukturę:
+  {"shipments": [
+    {
+      "id": "Testowy_REhMOjEyMzQ1Njc4OTEwUEw=",
+      "waybill": "Testowy_12345678910PL",
+      "carrierId": "DPD",
+      "carrierName": "Kurier DPD",
+      "lineItems": [
+          {
+          "id": "ed6b4380-3108-11e9-96bc-5f220d078cf7"
+          }
+      ],
+      "createdAt": "2019-02-18T12:07:03.353Z"
+      }
+    ]
+  }
+#}
+
+----------------------------Wysłanie żądania API (GET, POST, PUT) do zewnętrznego systemu.
+
+{# pobranie historii przesyłki z zewnętrznego systemu InPost #}
+{% send_request 'https://api-shipx-pl.easypack24.net/v1/tracking/521000011526025003675478' %}
+{# pobranie kursów walut z zewnętrznego systemu Freecurrencyapi #}
+{% send_request 'https://freecurrencyapi.net/api/v2/latest?apikey=14d65cb0-6cd3-11ec-8870-1f9d0dbbebd5'%}
+{# możliwe parametry
+  -method - metoda wywołania API. Przyjmuje wartość GET, POST lub PUT,
+  -headers - nagłówki HTTP żądania,
+  -payload - przesyłane dane w formacie JSON.
+  np.
+  {% send_request 'https://example.com/api/v1/' method='POST' headers={'Authorization':'Basic YWRtaW46YXBpcHdk'} payload={'order':order.id} %}
+#}
+
+----------------------------Treść zależna od kraju platformy Allegro, w którym złożono zamówienie.
+
+{% if order.marketplace.id == "allegro-pl" %}
+  zamówienie z polskiego allegro
+{% elif order.marketplace.id == "allegro-cz" %}
+  zamówienie z czeskiego allegro
+{% elif order.marketplace.id == "allegro-sk" %}
+  zamówienie ze słowackiego allegro
+{% elif order.marketplace.id == "allegro-hu" %}
+  zamówienie z węgierskiego allegro
+{% else %}
+  zamówienie z innego kraju
+  {% send_email 'sprzedawca@example.com' 'Wymagane dodanie tłumaczenia' order.marketplace.id %}
+{% endif %}
+
+----------------------------Wysłanie powiadomienia SMS do sprzedawcy po sprzedaniu wybranych ofert.
+
+{% set ns = namespace(found=false) %}
+{% for lineItem in order.lineItems %}
+    {% if lineItem.offer.name|lower|contains_any(['cos', 'cos innego']) %}
+      {% set ns.found = true %}
+    {% endif %}
+{% endfor %}
+ 
+{% if ns.found %}
+    {% set sms_message = "Sprzedałeś przedmiot z listy do kupującego {0}.".format(order.buyer.login) %}
+    {% send_sms '555333444' sms_message %}
+{% endif %}
+
+--------------------------------------------------------------------------------------------------------------
+
+Podstawy korzystania z silnika szablonów:
+Znaczniki szablonu:
+
+{% ... %} do wyrażeń i instrukcji,
+{{ ... }} do wyświetlenia danych kontekstu,
+{# ... #} do komentarzy (nie renderowane).
+Filtry:
+Filtry służą do sekwencyjnej modyfikacji danych wejściowych.
+{{ allMessages[0].text|upper|truncate(20) }} - przykład wyświetlenia zmodyfikowanej treści pierwszej wiadomości (wielkość liter zmieniona na duże, a następnie tekst ucięty do 20 znaków).
+
+Lista wbudowanych filtrów - https://jinja.palletsprojects.com/en/2.11.x/templates/#list-of-builtin-filters
 --------------------------------------------------------------------------------------------------------------
 
 Mój komunikat z niezbędnikasprzedawcy
