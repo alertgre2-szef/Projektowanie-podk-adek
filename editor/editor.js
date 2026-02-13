@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer .
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-11-19
+ * VERSION: 2026-02-13-01
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-11-19";
+const CACHE_VERSION = "2026-02-13-01";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -125,13 +125,14 @@ function wireThemeButtons() {
 /* ========END======== [SEKCJA 02] THEME =========END======== */
 
 
-/* ========START======== [SEKCJA 03] URL PARAMS (NICK/ORDER/QTY) =========START======== */
+/* ========START======== [SEKCJA 03] URL PARAMS (NICK/ORDER/OFFER/QTY/BUYER) =========START======== */
 function _parseHashParams() {
   const h = (location.hash || "").replace(/^#/, "").trim();
   if (!h) return new URLSearchParams();
   try { return new URLSearchParams(h.includes("=") ? h : ""); }
   catch { return new URLSearchParams(); }
 }
+
 function getUrlParamAny(keys) {
   const sp = new URLSearchParams(location.search || "");
   const hp = _parseHashParams();
@@ -143,16 +144,94 @@ function getUrlParamAny(keys) {
   }
   return "";
 }
-function getNickFromUrl() { return getUrlParamAny(["nick", "order", "order_id"]); }
-function getOrderIdFromUrl() { return getUrlParamAny(["order_id", "order"]); }
-function getQtyFromUrl() {
-  const raw = getUrlParamAny(["qty", "q", "quantity", "count", "n"]);
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 1;
+
+/**
+ * ExternalContext – parametry z linka z Niezbędnika:
+ * order, offerId, qty, buyer
+ * Wszystko opcjonalne. Tryb zewnętrzny tylko gdy mamy: order + offerId + poprawne qty.
+ */
+const EXTERNAL_CTX = {
+  isExternalInit: false,
+  orderId: "",
+  offerId: "",
+  quantity: 1,
+  buyerLogin: "",
+  raw: { order: "", offerId: "", qty: "", buyer: "" },
+};
+
+function _parseQtyInt(raw, { min = 1, max = 99 } = {}) {
+  const n = Number(String(raw || "").trim());
+  if (!Number.isFinite(n)) return null;
   const i = Math.floor(n);
-  return Math.max(1, Math.min(99, i));
+  if (i < min || i > max) return null;
+  return i;
 }
-/* ========END======== [SEKCJA 03] URL PARAMS (NICK/ORDER/QTY) =========END======== */
+
+function initExternalContextFromUrl() {
+  const order = getUrlParamAny(["order", "order_id"]);
+  const offerId = getUrlParamAny(["offerId", "offer_id", "offer"]);
+  const qtyRaw = getUrlParamAny(["qty", "q", "quantity", "count", "n"]);
+  const buyer = getUrlParamAny(["buyer", "login", "user"]);
+
+  EXTERNAL_CTX.raw = { order, offerId, qty: qtyRaw, buyer };
+
+  const qty = _parseQtyInt(qtyRaw, { min: 1, max: 99 });
+
+  // Tryb zewnętrzny TYLKO jeśli komplet minimum jest poprawny:
+  // order + offerId + qty
+  if (order && offerId && qty != null) {
+    EXTERNAL_CTX.isExternalInit = true;
+    EXTERNAL_CTX.orderId = order;
+    EXTERNAL_CTX.offerId = offerId;
+    EXTERNAL_CTX.quantity = qty;
+    EXTERNAL_CTX.buyerLogin = buyer || "";
+  } else {
+    EXTERNAL_CTX.isExternalInit = false;
+    EXTERNAL_CTX.orderId = "";
+    EXTERNAL_CTX.offerId = "";
+    EXTERNAL_CTX.quantity = 1; // nie rozbijamy edytora – manual/standalone
+    EXTERNAL_CTX.buyerLogin = "";
+  }
+}
+
+// uruchom natychmiast, zanim policzymy QTY i klucze localStorage
+initExternalContextFromUrl();
+
+function getExternalContext() { return EXTERNAL_CTX; }
+
+function getNickFromUrl() {
+  // nick to nie buyer – ale jako fallback (np. stary link) nadal wspieramy
+  // Priorytet: nick → buyer → (stare) order
+  return getUrlParamAny(["nick", "buyer", "order", "order_id"]);
+}
+
+function getOrderIdFromUrl() {
+  // jeśli link z Niezbędnika jest poprawny – zawsze preferuj orderId z kontekstu
+  if (EXTERNAL_CTX.isExternalInit && EXTERNAL_CTX.orderId) return EXTERNAL_CTX.orderId;
+  return getUrlParamAny(["order_id", "order"]);
+}
+
+function getOfferIdFromUrl() {
+  if (EXTERNAL_CTX.isExternalInit && EXTERNAL_CTX.offerId) return EXTERNAL_CTX.offerId;
+  return getUrlParamAny(["offerId", "offer_id", "offer"]);
+}
+
+function getBuyerLoginFromUrl() {
+  if (EXTERNAL_CTX.isExternalInit && EXTERNAL_CTX.buyerLogin) return EXTERNAL_CTX.buyerLogin;
+  return getUrlParamAny(["buyer", "login", "user"]);
+}
+
+function getQtyFromUrl() {
+  // UX: qty ma wpływ na sloty tylko w trybie zewnętrznym (order+offerId+qty poprawne)
+  if (EXTERNAL_CTX.isExternalInit) return EXTERNAL_CTX.quantity;
+
+  // Standalone/manual: zachowujemy dotychczasowe wsparcie qty, ale w bezpiecznych granicach
+  const raw = getUrlParamAny(["qty", "q", "quantity", "count", "n"]);
+  const qty = _parseQtyInt(raw, { min: 1, max: 99 });
+  return qty == null ? 1 : qty;
+}
+/* ========END======== [SEKCJA 03] URL PARAMS (NICK/ORDER/OFFER/QTY/BUYER) =========END======== */
+
 
 
 /* ========START======== [SEKCJA 04] SLOTY (N sztuk) + LOCALSTORAGE =========START======== */
@@ -2035,6 +2114,10 @@ function buildProjectJson({ slotIndex, slotTotal, baseOrderId }) {
       url_order_id_raw: urlOrderIdRaw || "",
       qty: slotTotal,
       slot_index: slotIndex + 1,
+
+      // Niezbędnik (jeśli link był poprawny) – do przyszłego mapowania/automatyzacji
+      offer_id: (getExternalContext()?.isExternalInit ? (getExternalContext()?.offerId || "") : ""),
+      buyer_login: (getExternalContext()?.isExternalInit ? (getExternalContext()?.buyerLogin || "") : ""),
     },
 
     product: {
@@ -2745,7 +2828,17 @@ async function applyProductConfig(cfg) {
   } else {
     showProductManualChooser();
 
-    const manualCfg = normalizeProductConfig(MANUAL_PRESETS[0], { token: "", mode: "manual" });
+    const extOfferId = getOfferIdFromUrl();
+
+    // Minimalne mapowanie offerId → preset (rozszerzysz później)
+    let preset = MANUAL_PRESETS[0];
+    if (extOfferId) {
+      // przykłady: dopasuj pod swoje offerId z maila Niezbędnika
+      if (extOfferId === "coaster_square_100_r5") preset = MANUAL_PRESETS.find(p => p.id === "coaster_square_100_r5") || preset;
+      if (extOfferId === "coaster_circle_100") preset = MANUAL_PRESETS.find(p => p.id === "coaster_circle_100") || preset;
+    }
+
+    const manualCfg = normalizeProductConfig(preset, { token: "", mode: "manual" });
     await applyProductConfig(manualCfg);
 
     toast("Backend/token niedostępny — uruchomiono tryb ręczny.");
@@ -2772,4 +2865,4 @@ async function applyProductConfig(cfg) {
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-11-19 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-01 === */
