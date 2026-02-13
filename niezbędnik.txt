@@ -328,15 +328,41 @@ Foto Podkładka Kartonowa Kubek Kubki Kwadrat 9cm ze Zdjęcia. Fotopodkładka
 
 Wersja z pełną architekturą (podkładki + miejsce na kolejne grupy), ale na teraz aktywnie działa tylko: PODKŁADKI vs RESZTA. Sekcje “inne grupy” nie odpalą się, dopóki nie uzupełnisz ich list SKU.
 
+{# ========START======== [SEKCJA 01] NAGŁÓWEK + GLOBAL CONFIG =========START======== #}
 {# ============================================================
-   PUZZLA — MAIL PO ZAKUPIE (BLOKOWY, ROZWOJOWY, BEZ SPAMU)
+   PUZZLA — TEMPLATE WIADOMOŚCI POSPRZEDAŻOWEJ
+   NIEZBĘDNIK SPRZEDAWCY (Jinja2)
+
+   TRYB BLOKOWY, ROZWOJOWY, BEZ SPAMU
    AKTYWNE TERAZ: PODKŁADKI vs RESZTA
    GOTOWE NA PRZYSZŁOŚĆ: dodatkowe bloki po uzupełnieniu SKU
 ============================================================ #}
 
-{# ========== USTAWIENIA ========== #}
-{% set editor_base_url = "https://TWOJ-EDYTOR-URL.TU/editor" %}
+{% set template_version = "2026-02-13" %}
+{% set editor_version   = "2026-02-13" %}
+{% set editor_base_url  = "https://TWOJ-EDYTOR-URL.TU/editor" %}
 
+{# ------------------------------------------------------------
+🔁 WSKAŹNIK AKTUALIZACJI (czytaj przy zmianach)
+
+TEMPLATE VERSION: {{ template_version }}
+EDITOR VERSION:   {{ editor_version }}
+
+Jeśli zmienisz którykolwiek element poniżej — zaktualizuj TEMPLATE + sekcję serwisową:
+✓ lista SKU podkładek / pretty_name_by_sku
+✓ logika kompletów (np. 4x / 6x / 12x) — ile sztuk z 1 projektu
+✓ parametry linku: order / offerId / slots / qty / buyer
+✓ URL edytora (editor_base_url)
+✓ workflow klienta / komunikaty UX / sposób wysyłki
+
+Standard linku:
+- slots = liczba projektów do zaprojektowania (UX)
+- qty   = liczba sztuk do produkcji (kopie)
+------------------------------------------------------------ #}
+{# ========END======== [SEKCJA 01] NAGŁÓWEK + GLOBAL CONFIG =========END======== #}
+
+
+{# ========START======== [SEKCJA 02] SKU + MAPOWANIA =========START======== #}
 {# SKU PODKŁADEK (external.id) — BEZ PODK50 (hurt) #}
 {% set coasters_skus = [
   "Pod_Korek-Karton_Okrągła",
@@ -372,14 +398,21 @@ Wersja z pełną architekturą (podkładki + miejsce na kolejne grupy), ale na t
   "6x_Pod_Czarna_Okrągła": "Komplet 6 podkładek pod kubek okrągłych (czarna tektura)"
 } %}
 
+{# Komplet = 1 projekt (1 zdjęcie) -> N kopii do produkcji
+   Reguła: jeśli SKU zaczyna się od "6x" to set_size=6, inaczej 1
+   (później łatwo rozszerzyć na 4x/12x/memo bez zmiany logiki)
+#}
+{% set default_set_size = 1 %}
+
 {# ======= MIEJSCE NA PRZYSZŁE GRUPY (na razie puste) =======
    Dopóki listy są puste, te sekcje się NIE URUCHOMIĄ.
 #}
-{% set custom_skus = [] %}   {# np. fotopuzzle / wydruki personalizowane itd. #}
-{% set ready_skus = [] %}    {# np. gotowe puzzle / gotowe plakaty itd. #}
+{% set custom_skus = [] %}
+{% set ready_skus  = [] %}
+{# ========END======== [SEKCJA 02] SKU + MAPOWANIA =========END======== #}
 
 
-{# ========== POWITANIE (login + humor w nocy) ========== #}
+{# ========START======== [SEKCJA 03] POWITANIE + PODSUMOWANIE =========START======== #}
 {% set hour = (now|to_localtime).hour %}
 {% if hour >= 22 or hour <= 4 %}
 Dobry wieczór {{ order.buyer.login }} 🌙  
@@ -389,15 +422,14 @@ Dzień dobry {{ order.buyer.login }} 😊🧩
 Dziękujemy za zamówienie — już działamy!
 {% endif %}
 
-{# ========== PODSUMOWANIE (bez cen) ========== #}
-
 <b>Podsumowanie zamówienia:</b>
 {% for lineItem in order.lineItems %}
 - {{ lineItem.offer.name }} × {{ lineItem.quantity }}
 {% endfor %}
+{# ========END======== [SEKCJA 03] POWITANIE + PODSUMOWANIE =========END======== #}
 
 
-{# ========== KLASYFIKACJA ========== #}
+{# ========START======== [SEKCJA 04] KLASYFIKACJA + LINKI (slots/qty) =========START======== #}
 {% set ns = namespace(coasters=[], other=[], custom=[], ready=[]) %}
 
 {% for lineItem in order.lineItems %}
@@ -405,25 +437,41 @@ Dziękujemy za zamówienie — już działamy!
 
   {% if sku in coasters_skus %}
     {% set pretty = pretty_name_by_sku.get(sku, lineItem.offer.name) %}
+
+    {# Rozpoznanie kompletów 6x... (1 projekt, 6 kopii do produkcji) #}
     {% set is_set = (sku|string).startswith("6x") %}
-    {# Link per pozycja (bez SKU, bo może mieć polskie znaki; używamy offerId + qty) #}
-    {% set editor_link = editor_base_url ~ "?order=" ~ order.id ~ "&offerId=" ~ lineItem.offer.id ~ "&qty=" ~ lineItem.quantity %}
+    {% set set_size = 6 if is_set else default_set_size %}
+
+    {# NOWY STANDARD:
+       slots = liczba projektów do zaprojektowania (UX)
+       qty   = liczba sztuk do produkcji (kopie)
+    #}
+    {% set slots_count = 1 if is_set else lineItem.quantity %}
+    {% set prod_qty    = (lineItem.quantity * set_size) if is_set else lineItem.quantity %}
+
+    {% set editor_link = editor_base_url
+      ~ "?order="  ~ order.id
+      ~ "&offerId=" ~ lineItem.offer.id
+      ~ "&slots=" ~ slots_count
+      ~ "&qty="   ~ prod_qty
+      ~ "&buyer=" ~ order.buyer.login
+    %}
 
     {% set ns.coasters = ns.coasters + [{
       "name": pretty,
-      "qty": lineItem.quantity,
+      "qty": prod_qty,
+      "slots": slots_count,
       "is_set": is_set,
+      "set_size": set_size,
       "link": editor_link
     }] %}
 
   {% else %}
-    {# AKTYWNE TERAZ: wszystko poza podkładkami wpada do "other" #}
     {% set ns.other = ns.other + [{
       "name": lineItem.offer.name,
       "qty": lineItem.quantity
     }] %}
 
-    {# PRZYSZŁOŚĆ (na razie nieaktywne, bo listy SKU są puste) #}
     {% if sku in custom_skus %}
       {% set ns.custom = ns.custom + [{"name": lineItem.offer.name, "qty": lineItem.quantity}] %}
     {% endif %}
@@ -432,9 +480,10 @@ Dziękujemy za zamówienie — już działamy!
     {% endif %}
   {% endif %}
 {% endfor %}
+{# ========END======== [SEKCJA 04] KLASYFIKACJA + LINKI (slots/qty) =========END======== #}
 
 
-{# ========== BLOK A — PODKŁADKI (EDYTOR) ========== #}
+{# ========START======== [SEKCJA 05] BLOK A — PODKŁADKI (EDYTOR) =========START======== #}
 {% if ns.coasters|length > 0 %}
 <hr>
 <b>🟦 Podkładki — przygotowanie projektu w edytorze</b>
@@ -443,7 +492,7 @@ Zakupiłeś(aś):
 {% for it in ns.coasters %}
 - {{ it.name }} × {{ it.qty }}
   {% if it.is_set %}
-  → Do kompletu wystarczy <b>1 zdjęcie</b>.
+  → To komplet: wystarczy <b>1 projekt (1 zdjęcie)</b>, a my wykonamy <b>{{ it.qty }} szt.</b>
   {% endif %}
   → Link do edytora dla tej pozycji:
   {{ it.link }}
@@ -458,9 +507,10 @@ Zakupiłeś(aś):
 Najlepszy efekt uzyskamy z <b>oryginalnych zdjęć</b> (prosto z telefonu/aparatu).  
 Komunikatory (Messenger/WhatsApp itp.) często automatycznie pogarszają jakość — jeśli możesz, dodaj zdjęcie bezpośrednio w edytorze lub wyślij jako plik.
 {% endif %}
+{# ========END======== [SEKCJA 05] BLOK A — PODKŁADKI (EDYTOR) =========END======== #}
 
 
-{# ========== BLOK B — RESZTA PRODUKTÓW (NEUTRALNY) ========== #}
+{# ========START======== [SEKCJA 06] BLOK B — RESZTA PRODUKTÓW =========START======== #}
 {% if ns.other|length > 0 %}
 <hr>
 <b>🟩 Pozostałe produkty</b>
@@ -476,9 +526,10 @@ Jeśli któryś z powyższych produktów wymaga personalizacji (np. dodania zdj�
 Najlepszy efekt uzyskamy z <b>oryginalnych zdjęć</b>.  
 Komunikatory często obniżają jakość — jeśli możesz, wyślij zdjęcia jako pliki (bez kompresji).
 {% endif %}
+{# ========END======== [SEKCJA 06] BLOK B — RESZTA PRODUKTÓW =========END======== #}
 
 
-{# ========== STOPKA (ZALEŻNA OD KONTA) ========== #}
+{# ========START======== [SEKCJA 07] STOPKA =========START======== #}
 <hr>
 {% if seller.login == 'login_allegro_1' %}
 Pozdrawiamy serdecznie,  
@@ -494,7 +545,43 @@ Grzegorz Borys
 Puzzla.pl — www.puzzla.pl
 {% endif %}
 
-<!-- KONIEC PLIKU (mail_template_v2026-02-13) -->
+<!-- KONIEC PLIKU (template_wiadomosci_posprzedazowej_v{{ template_version }} | editor_v{{ editor_version }}) -->
+{# ========END======== [SEKCJA 07] STOPKA =========END======== #}
+
+
+{# ========START======== [SEKCJA 08] SEKCJA SERWISOWA / ARCHIWALNA =========START======== #}
+{# 
+✅ OPIS TECHNICZNY — TEMPLATE WIADOMOŚCI POSPRZEDAŻOWEJ (NIEZBĘDNIK SPRZEDAWCY)
+
+Wersje:
+- template_version: {{ template_version }}
+- editor_version:   {{ editor_version }}
+
+STANDARD LINKU:
+- slots = liczba projektów do zaprojektowania (UX)
+- qty   = liczba sztuk do produkcji (kopie)
+
+Dla kompletów 6x...:
+- slots = 1
+- qty   = lineItem.quantity * 6
+
+Dla zwykłych pozycji:
+- slots = lineItem.quantity
+- qty   = lineItem.quantity
+
+Wzór linku:
+editor_base_url + "?order=<order.id>&offerId=<offer.id>&slots=<slots>&qty=<qty>&buyer=<buyer.login>"
+
+TRIGGERY AKTUALIZACJI:
+- nowe SKU / zmiany nazw
+- nowe komplety (np. 4x/12x)
+- dodanie memo (dużo kafelków) → decyzja: slots vs kopie
+- zmiana parametrów linku / URL edytora / workflow
+#}
+{# ========END======== [SEKCJA 08] SEKCJA SERWISOWA / ARCHIWALNA =========END======== #}
+
+/* === KONIEC PLIKU — Template wiadomości posprzedażowej (Niezbędnik Sprzedawcy, Jinja2) === */
+
 
 {# ========== Opis projektu ========== #}
 {# ========== Opis projektu ========== #}
