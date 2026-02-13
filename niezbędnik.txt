@@ -1,11 +1,75 @@
 START ------------- kod wiadomości niezbędnika -------------------
 
-{% set hour = (now|to_datetime).hour %}
+{# ============================================================
+   PUZZLA — WIADOMOŚĆ PO ZAKUPIE (NIEZBĘDNIK SPRZEDAWCY / Jinja2)
+   TRYB: PODKŁADKI (EDYTOR) vs RESZTA (WYŚLIJ ZDJĘCIA)
+   WERSJA: 2026-02-13-NS-01
 
+   WAŻNE: Jeśli zmienisz:
+   - listę SKU podkładek (external.id),
+   - parametry linku do edytora,
+   - domenę / ścieżkę edytora,
+   to ZAKTUALIZUJ ten template.
+============================================================ #}
+
+{# =========START======== [SEKCJA 01] USTAWIENIA =========START======== #}
+{# Baza edytora (tu ustawiasz PROD) #}
+{# Aktualnie: testowy adres z Twojego przykładu #}
+{% set editor_base_url = "https://puzzla.nazwa.pl/puzzla/projekt-podkladek/editor/" %}
+
+{# Token do edytora (jeśli stały w testach) — w PROD możesz to zmienić wg własnego mechanizmu #}
+{% set editor_token = "TEST123" %}
+
+{# SKU PODKŁADEK (external.id) — BEZ PODK50 (hurt) #}
+{% set coasters_skus = [
+  "Pod_Korek-Karton_Okrągła",
+  "6x_Pod_Czarna_Okrągła",
+  "Pod_Korek-Karton_Kwadrat",
+  "Pod_Beermat_Okrągła",
+  "Pod_Czarna_Okrągła",
+  "Pod_Beermat_Kwadrat",
+  "Pod_Drewniana_Kwadrat",
+  "Pod_Drewniana_Okrągła",
+  "6xPod_Beermat_Kwadrat",
+  "Pod_Korek_Kwadrat",
+  "6xPod_Korek_Kwadrat",
+  "6xPod_Czarna_Kwadrat",
+  "Pod_Czarna_Kwadrat"
+] %}
+
+{# Mapowanie SKU -> “ładna nazwa” (fallback: lineItem.offer.name) #}
+{% set pretty_name_by_sku = {
+  "Pod_Korek-Karton_Okrągła": "Foto podkładka okrągła (korek + karton)",
+  "Pod_Korek-Karton_Kwadrat": "Foto podkładka kwadratowa (korek + karton)",
+  "Pod_Beermat_Okrągła": "Foto podkładka okrągła Beermat",
+  "Pod_Beermat_Kwadrat": "Foto podkładka kwadratowa Beermat",
+  "Pod_Czarna_Okrągła": "Foto podkładka okrągła (czarna tektura)",
+  "Pod_Czarna_Kwadrat": "Foto podkładka kwadratowa (czarna tektura)",
+  "Pod_Drewniana_Okrągła": "Foto podkładka okrągła (drewniana)",
+  "Pod_Drewniana_Kwadrat": "Foto podkładka kwadratowa (drewniana)",
+  "Pod_Korek_Kwadrat": "Foto podkładka kwadratowa (korek naturalny)",
+
+  "6xPod_Beermat_Kwadrat": "Komplet 6 podkładek pod kubek (Beermat, kwadrat)",
+  "6xPod_Korek_Kwadrat": "Komplet 6 podkładek pod kubek (korek naturalny, kwadrat)",
+  "6xPod_Czarna_Kwadrat": "Komplet 6 podkładek pod kubek (czarna tektura, kwadrat)",
+  "6x_Pod_Czarna_Okrągła": "Komplet 6 podkładek pod kubek (czarna tektura, okrąg)"
+} %}
+
+{# Funkcja pomocnicza: bezpieczny int #}
+{% macro to_int(v, dflt=1) -%}
+  {%- set x = (v | int) -%}
+  {%- if x <= 0 -%}{{ dflt }}{%- else -%}{{ x }}{%- endif -%}
+{%- endmacro %}
+
+{# =========END======== [SEKCJA 01] USTAWIENIA =========END======== #}
+
+
+{# =========START======== [SEKCJA 02] POWITANIE + PŁATNOŚĆ =========START======== #}
+{% set hour = (now|to_datetime).hour %}
 {% if hour >= 18 %}
-Dobry wieczór! 😊🧩
+Dobry wieczór {{ order.buyer.login | default("😊") }}! 😊🧩
 {% else %}
-Dzień dobry! 😊🧩
+Dzień dobry {{ order.buyer.login | default("😊") }}! 😊🧩
 {% endif %}
 
 {% if order.payment.type == "CASH_ON_DELIVERY" %}
@@ -13,54 +77,95 @@ Super wiadomość — zabieramy się za realizację Twojego zamówienia z płatn
 {% else %}
 Dziękujemy! Otrzymaliśmy Twoją wpłatę i rozpoczynamy realizację zamówienia 💳✅
 {% endif %}
+{# =========END======== [SEKCJA 02] POWITANIE + PŁATNOŚĆ =========END======== #}
 
-{# --- Grupy produktów --- #}
-{% set SKU_PODKLADKI = "SKU_PODKLADKI" %}
 
-{% set ns = namespace(coasters_qty=0, has_coasters=false, has_other=false) %}
+{# =========START======== [SEKCJA 03] PODSUMOWANIE (BEZ CEN) =========START======== #}
+—
+🧩 **Twoje zamówienie (podsumowanie):**
+{% for lineItem in order.lineItems %}
+- {{ lineItem.offer.name | default("Produkt") }} × {{ lineItem.quantity }}
+{% endfor %}
+{# =========END======== [SEKCJA 03] PODSUMOWANIE (BEZ CEN) =========END======== #}
+
+
+{# =========START======== [SEKCJA 04] KLASYFIKACJA POZYCJI =========START======== #}
+{% set ns = namespace(coasters=[], other=[]) %}
 
 {% for lineItem in order.lineItems %}
-  {% if lineItem.offer.external.id == SKU_PODKLADKI %}
-    {% set ns.has_coasters = true %}
-    {% set ns.coasters_qty = ns.coasters_qty + (lineItem.quantity | int) %}
+  {% set sku = lineItem.offer.external.id %}
+  {% if sku in coasters_skus %}
+    {% set pretty = pretty_name_by_sku.get(sku, lineItem.offer.name) %}
+    {% set q = (lineItem.quantity | int) %}
+    {% if q <= 0 %}{% set q = 1 %}{% endif %}
+
+    {# Link per pozycja: order + offerId + qty + buyer + token #}
+    {% set editor_link = editor_base_url
+      ~ "?token=" ~ editor_token
+      ~ "&order=" ~ order.id
+      ~ "&offerId=" ~ lineItem.offer.id
+      ~ "&qty=" ~ q
+      ~ "&buyer=" ~ (order.buyer.login | default(""))
+    %}
+
+    {% set ns.coasters = ns.coasters + [{
+      "name": pretty,
+      "qty": q,
+      "sku": sku,
+      "link": editor_link
+    }] %}
   {% else %}
-    {% set ns.has_other = true %}
+    {% set q2 = (lineItem.quantity | int) %}
+    {% if q2 <= 0 %}{% set q2 = 1 %}{% endif %}
+    {% set ns.other = ns.other + [{
+      "name": lineItem.offer.name | default("Produkt"),
+      "qty": q2
+    }] %}
   {% endif %}
 {% endfor %}
+{# =========END======== [SEKCJA 04] KLASYFIKACJA POZYCJI =========END======== #}
 
-🧩 **Twoje zamówienie:**
-{% for lineItem in order.lineItems %}
-- {{ lineItem.offer.name | default("Produkt") }}
-  👉 {{ lineItem.quantity }} × {{ lineItem.price.amount }} {{ lineItem.price.currency|get_currency_symbol }}
-{% endfor %}
 
-{# --- Sekcja: Podkładki (link do edytora) --- #}
-{% if ns.has_coasters %}
+{# =========START======== [SEKCJA 05] PODKŁADKI (EDYTOR) =========START======== #}
+{% if ns.coasters|length > 0 %}
 —
 🧩 **Podkładki — projekt online**
-Aby przygotować podkładki do druku, zaprojektuj zestaw w naszym edytorze:
-👉 TU_WSTAW_LINK?qty={{ ns.coasters_qty }}
+Aby przygotować podkładki do druku, skorzystaj z edytora (osobny link dla każdej pozycji):
 
-Prosimy używać możliwie najlepszej jakości zdjęć — od tego zależy ostrość wydruku. Słaba jakość pliku może być widoczna na gotowym produkcie.
+{% for it in ns.coasters %}
+- {{ it.name }} × {{ it.qty }}
+  👉 {{ it.link }}
+{% endfor %}
+
+**Ważne o jakości zdjęcia:**
+Najlepszy efekt uzyskamy z **oryginalnych zdjęć** (prosto z telefonu/aparatu).  
+Komunikatory (Messenger/WhatsApp itp.) często pogarszają jakość — jeśli możesz, dodaj zdjęcie bezpośrednio w edytorze lub wyślij jako plik.
+
 Przesłane projekty realizujemy dokładnie w takiej formie, w jakiej zostaną zapisane — nie ingerujemy w układ ani jakość zdjęć.
 {% endif %}
+{# =========END======== [SEKCJA 05] PODKŁADKI (EDYTOR) =========END======== #}
 
-{# --- Sekcja: Pozostałe produkty (wysłanie zdjęć) --- #}
-{% if ns.has_other %}
+
+{# =========START======== [SEKCJA 06] POZOSTAŁE PRODUKTY =========START======== #}
+{% if ns.other|length > 0 %}
 —
 📸 **Pozostałe produkty — prześlij zdjęcia**
-Abyśmy mogli przygotować zamówienie do realizacji, prosimy o przesłanie zdjęć w wiadomości Allegro lub mailowo: office@puzzla.pl
+W zamówieniu są również:
+{% for it in ns.other %}
+- {{ it.name }} × {{ it.qty }}
+{% endfor %}
 
-Prosimy używać możliwie najlepszej jakości zdjęć — słaba jakość pliku będzie widoczna na wydruku.
+Jeśli któryś z powyższych produktów wymaga personalizacji (np. dodania zdjęcia), prosimy o przesłanie plików w wiadomości Allegro lub mailowo: **office@puzzla.pl**
+
+**Ważne o jakości zdjęć:**  
+Prosimy używać możliwie najlepszej jakości plików — słaba jakość może być widoczna na wydruku.  
 Materiały realizujemy dokładnie w takiej formie, w jakiej zostaną dostarczone — nie ingerujemy w zdjęcia.
-
-PPH Puzzla Grzegorz Borys  
-ul. Walczaka 25  
-66-400 Gorzów Wlkp.  
-tel. +48 662 827 331  
-office@puzzla.pl
 {% endif %}
+{# =========END======== [SEKCJA 06] POZOSTAŁE PRODUKTY =========END======== #}
 
+
+{# =========START======== [SEKCJA 07] STOPKA + KONTEKST =========START======== #}
+—
 Zamówienie zostało złożone z konta:
 👤 {{ order.buyer.login | default("Kupujący") }}
 
@@ -68,6 +173,16 @@ Jeśli chcesz, sprawdź proszę, czy dane do wysyłki są poprawne — dzięki t
 
 Pozdrawiamy serdecznie  
 Zespół Puzzla (obsługa sklepu {{ seller.login | default("Sprzedawca") }} na Allegro) 🧩
+
+PPH Puzzla Grzegorz Borys  
+ul. Walczaka 25  
+66-400 Gorzów Wlkp.  
+tel. +48 662 827 331  
+office@puzzla.pl
+{# =========END======== [SEKCJA 07] STOPKA + KONTEKST =========END======== #}
+
+<!-- KONIEC PLIKU (niezbednik_template_v2026-02-13-NS-01) -->
+
 
 END ------------- kod wiadomości niezbędnika -------------------
 
