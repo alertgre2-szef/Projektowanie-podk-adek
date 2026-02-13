@@ -495,3 +495,92 @@ Puzzla.pl — www.puzzla.pl
 {% endif %}
 
 <!-- KONIEC PLIKU (mail_template_v2026-02-13) -->
+
+{# ========== Opis projektu ========== #}
+{# ========== Opis projektu ========== #}
+{# ========== Opis projektu ========== #}
+{# ========== Opis projektu ========== #}
+{# ========== Opis projektu ========== #}
+
+✅ OPIS PROJEKTU — NIEZBĘDNIK SPRZEDAWCY (PUZZLA)
+
+Cel
+Automatyczny mail po zakupie w Niezbędniku Sprzedawcy, który:
+
+rozpoznaje typ produktów,
+
+prowadzi klienta przez personalizację,
+
+nie wprowadza w błąd przy produktach gotowych,
+
+jest gotowy na rozbudowę.
+
+Struktura maila
+🔵 Podkładki
+
+wykrywane po SKU
+
+lista produktów + ilość
+
+przy kompletach: „1 zdjęcie”
+
+link do edytora
+
+krótka instrukcja + info o jakości zdjęć
+
+🟩 Pozostałe produkty
+
+lista wszystkiego co nie jest podkładką
+
+neutralny komunikat:
+„jeśli wymagają personalizacji — wyślij zdjęcia”
+
+Powitanie
+
+używa order.buyer.login
+
+noc → lekki humor
+
+Podsumowanie zamówienia
+
+lista produktów + ilości
+
+bez cen
+
+Parametry edytora
+
+Link przekazuje:
+
+order   → ID zamówienia
+offerId → typ produktu
+qty     → ilość
+buyer   → login klienta
+
+
+Klient nic nie wpisuje ręcznie.
+
+Zasady UX
+
+zero spamu
+
+jasne instrukcje
+
+klient wie co zrobić
+
+brak komunikatów dla produktów gotowych
+
+Stan projektu
+
+działa podział: podkładki vs reszta
+
+architektura gotowa na kolejne grupy
+
+edytor będzie obsługiwał parametry URL
+
+Koniec opisu projektu
+
+{# END======= Opis projektu =======END #}
+{# END======= Opis projektu =======END #}
+{# END======= Opis projektu =======END #}
+{# END======= Opis projektu =======END #}
+{# END======= Opis projektu =======END #}
