@@ -649,6 +649,25 @@ function updateUiVersionBadge() {
 /* ========END======== [SEKCJA 06] WERSJA W UI =========END======== */
 
 
+/* ========START======== [SEKCJA 06a] UI TITLE/SUBTITLE HELPERS =========START======== */
+function setUiTitleSubtitle(title, subtitle) {
+  const t = document.getElementById("appTitleText");
+  const s = document.getElementById("appSubtitleText");
+
+  if (t) t.textContent = String(title || "Edytor");
+  if (s) s.textContent = String(subtitle || "");
+
+  // Ustaw też tytuł karty przeglądarki (opcjonalnie)
+  try {
+    const main = String(title || "Edytor").trim();
+    const sub = String(subtitle || "").trim();
+    document.title = sub ? `${main} — ${sub}` : main;
+  } catch {}
+}
+/* ========END======== [SEKCJA 06a] UI TITLE/SUBTITLE HELPERS =========END======== */
+
+
+
 /* ========START======== [SEKCJA 07] BACKEND PRODUCT CONFIG (project.php) =========START======== */
 
 // Pobiera konfigurację produktu z backendu (api/project.php) na podstawie tokena projektu.
