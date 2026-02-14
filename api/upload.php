@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /**
  * api/upload.php
- * FILE_VERSION: 2026-02-14-03
+ * FILE_VERSION: 2026-02-14-06
  *
  * KONTRAKT TRYBÓW:
  *  - DEMO (mode=demo): upload ALWAYS OFF (403), niezależnie od tokena.
@@ -228,8 +228,15 @@ function authorize_legacy_if_enabled(): void {
 }
 
 /* ==== AUTH ==== */
-$AUTH_CONTEXT = authorize();
+/**
+ * Kolejność MA znaczenie:
+ * - jeśli legacy jest włączony i poprawny -> przepuszczamy bez project tokena
+ * - w przeciwnym razie wymagamy project tokena (authorize())
+ */
 authorize_legacy_if_enabled();
+if (($AUTH_CONTEXT['mode'] ?? '') !== 'legacy') {
+  $AUTH_CONTEXT = authorize();
+}
 
 /* ==== ŚCIEŻKI ==== */
 $baseDir = realpath(__DIR__ . '/..');
@@ -419,7 +426,15 @@ if (is_string($jsonText) && $jsonText !== '') {
 }
 
 /* ==== OK RESPONSE ==== */
-$baseUrl = 'https://puzzla.nazwa.pl/puzzla/projekt-podkladek/uploads/' . rawurlencode($ORDER_DIR_NAME) . '/';
+/**
+ * SaaS-ready: bez hardcode domeny/ścieżki.
+ * Zakładamy, że /uploads jest na tym samym poziomie co /api.
+ */
+$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$host = (string)($_SERVER['HTTP_HOST'] ?? '');
+$script = (string)($_SERVER['SCRIPT_NAME'] ?? ''); // np. /puzzla/projekt-podkladek/api/upload.php
+$basePath = preg_replace('~\/api\/upload\.php$~', '', $script) ?? '';
+$baseUrl = $scheme . '://' . $host . $basePath . '/uploads/' . rawurlencode($ORDER_DIR_NAME) . '/';
 
 if ($IS_UPDATE) {
   $messageForUser =
@@ -453,7 +468,7 @@ log_line(sprintf(
 
 respond_json(200, [
   'ok' => true,
-  'mode' => $MODE === '' ? 'prod' : $MODE,
+  'mode' => 'prod', // demo jest wyłapany wcześniej (403)
   'auth_mode' => $AUTH_CONTEXT['mode'],
   'id' => $id,
   'buyer' => $CLIENT_NICK_CLEAN !== '' ? $CLIENT_NICK_CLEAN : null,
@@ -468,5 +483,4 @@ respond_json(200, [
   'server_ts' => now_iso(),
 ]);
 
-
-/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-14-03 === */
+/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-14-06 === */
