@@ -666,6 +666,43 @@ function setUiTitleSubtitle(title, subtitle) {
 }
 /* ========END======== [SEKCJA 06a] UI TITLE/SUBTITLE HELPERS =========END======== */
 
+/* ========START======== [SEKCJA 06b] BACKEND CONFIG LOADER (TOKEN) =========START======== */
+
+/**
+ * TOKEN projektu:
+ * - produkcja: token jest w linku (?token=...)
+ * - demo/manual: token pusty -> backend pomijamy
+ */
+const TOKEN = (getQueryParam("token") || "").trim();
+
+/**
+ * Ładuje config projektu z backendu.
+ * Zwraca:
+ *  - obiekt cfg (znormalizowany), jeśli backend działa i token jest poprawny
+ *  - null, jeśli brak tokena / backend niedostępny / błąd
+ */
+async function loadConfigFromBackend(projectToken) {
+  const t = String(projectToken || "").trim();
+  if (!t) return null;
+
+  try {
+    // initProjectConfig() jest zdefiniowane w SEKCJI 07 (backend product config)
+    const cfg = await initProjectConfig(t);
+
+    // Ustal tryb + zapamiętaj token w configu (żeby upload wiedział czym się autoryzować)
+    cfg.mode = "backend";
+    cfg.token = t;
+
+    return cfg;
+  } catch (e) {
+    derr("Backend config load failed:", e);
+    return null;
+  }
+}
+
+/* ========END======== [SEKCJA 06b] BACKEND CONFIG LOADER (TOKEN) =========END======== */
+
+
 
 
 /* ========START======== [SEKCJA 07] BACKEND PRODUCT CONFIG (project.php) =========START======== */
