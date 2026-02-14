@@ -125,7 +125,7 @@ function wireThemeButtons() {
 /* ========END======== [SEKCJA 02] THEME =========END======== */
 
 
-/* ========START======== [SEKCJA 03] URL PARAMS (NICK/ORDER/OFFER/SLOTS/QTY/BUYER/SKU) =========START======== */
+/* ========START======== [SEKCJA 03] URL PARAMS (NICK/ORDER/SKU/OFFER/SLOTS/QTY/BUYER) =========START======== */
 function _parseHashParams() {
   const h = (location.hash || "").replace(/^#/, "").trim();
   if (!h) return new URLSearchParams();
@@ -147,21 +147,20 @@ function getUrlParamAny(keys) {
 
 /**
  * ExternalContext – parametry z linka z Niezbędnika:
- * order, offerId, slots, qty, buyer, sku
+ * order, sku, offerId, slots, qty, buyer
  *
- * NOWA LOGIKA:
- * - slots => liczba projektów (slotów w edytorze)
- * - qty   => liczba sztuk do produkcji (może być > slots; np. komplet)
+ * - sku: identyfikacja produktu (docelowo)
+ * - offerId: kompatybilność wstecz (jeśli jeszcze jest w linkach)
  */
 const EXTERNAL_CTX = {
   isExternalInit: false,
   orderId: "",
+  sku: "",
   offerId: "",
   slotsCount: 1,
   prodQty: 1,
   buyerLogin: "",
-  sku: "",
-  raw: { order: "", offerId: "", slots: "", qty: "", buyer: "", sku: "" },
+  raw: { order: "", sku: "", offerId: "", slots: "", qty: "", buyer: "" },
 };
 
 function _parseQtyInt(raw, { min = 1, max = 999 } = {}) {
@@ -174,16 +173,19 @@ function _parseQtyInt(raw, { min = 1, max = 999 } = {}) {
 
 function initExternalContextFromUrl() {
   const order = getUrlParamAny(["order", "order_id"]);
+
+  // NOWE: SKU produktu
+  const sku = getUrlParamAny(["sku", "SKU", "product_sku", "productSku"]);
+
+  // LEGACY: offerId (jeśli linki jeszcze go podają)
   const offerId = getUrlParamAny(["offerId", "offer_id", "offer"]);
 
   const slotsRaw = getUrlParamAny(["slots", "s", "projects"]);
   const qtyRaw = getUrlParamAny(["qty", "q", "quantity", "count"]);
   const legacyN = getUrlParamAny(["n"]);
-
   const buyer = getUrlParamAny(["buyer", "login", "user"]);
-  const sku = getUrlParamAny(["sku", "external_id", "externalId"]);
 
-  EXTERNAL_CTX.raw = { order, offerId, slots: slotsRaw || legacyN, qty: qtyRaw || "", buyer, sku };
+  EXTERNAL_CTX.raw = { order, sku, offerId, slots: slotsRaw || legacyN, qty: qtyRaw || "", buyer };
 
   const slotsParsed =
     _parseQtyInt(slotsRaw, { min: 1, max: 999 }) ??
@@ -197,22 +199,23 @@ function initExternalContextFromUrl() {
   const slotsCount = slotsParsed == null ? 1 : slotsParsed;
   const prodQty = qtyParsed == null ? slotsCount : qtyParsed;
 
-  if (order && offerId && (slotsParsed != null || qtyParsed != null)) {
+  // tryb zewnętrzny: order + (sku lub offerId) + poprawne slots/qty
+  if (order && (sku || offerId) && (slotsParsed != null || qtyParsed != null)) {
     EXTERNAL_CTX.isExternalInit = true;
     EXTERNAL_CTX.orderId = order;
-    EXTERNAL_CTX.offerId = offerId;
+    EXTERNAL_CTX.sku = sku || "";
+    EXTERNAL_CTX.offerId = offerId || "";
     EXTERNAL_CTX.slotsCount = slotsCount;
     EXTERNAL_CTX.prodQty = prodQty;
     EXTERNAL_CTX.buyerLogin = buyer || "";
-    EXTERNAL_CTX.sku = sku || "";
   } else {
     EXTERNAL_CTX.isExternalInit = false;
     EXTERNAL_CTX.orderId = "";
+    EXTERNAL_CTX.sku = "";
     EXTERNAL_CTX.offerId = "";
     EXTERNAL_CTX.slotsCount = 1;
     EXTERNAL_CTX.prodQty = 1;
     EXTERNAL_CTX.buyerLogin = "";
-    EXTERNAL_CTX.sku = sku || "";
   }
 }
 
@@ -222,12 +225,18 @@ initExternalContextFromUrl();
 function getExternalContext() { return EXTERNAL_CTX; }
 
 function getNickFromUrl() {
+  // nick to nie buyer – ale jako fallback nadal wspieramy
   return getUrlParamAny(["nick", "buyer", "order", "order_id"]);
 }
 
 function getOrderIdFromUrl() {
   if (EXTERNAL_CTX.isExternalInit && EXTERNAL_CTX.orderId) return EXTERNAL_CTX.orderId;
   return getUrlParamAny(["order_id", "order"]);
+}
+
+function getSkuFromUrl() {
+  if (EXTERNAL_CTX.isExternalInit && EXTERNAL_CTX.sku) return EXTERNAL_CTX.sku;
+  return getUrlParamAny(["sku", "SKU", "product_sku", "productSku"]);
 }
 
 function getOfferIdFromUrl() {
@@ -238,11 +247,6 @@ function getOfferIdFromUrl() {
 function getBuyerLoginFromUrl() {
   if (EXTERNAL_CTX.isExternalInit && EXTERNAL_CTX.buyerLogin) return EXTERNAL_CTX.buyerLogin;
   return getUrlParamAny(["buyer", "login", "user"]);
-}
-
-function getSkuFromUrl() {
-  if (EXTERNAL_CTX.isExternalInit && EXTERNAL_CTX.sku) return EXTERNAL_CTX.sku;
-  return getUrlParamAny(["sku", "external_id", "externalId"]);
 }
 
 // SLOTY: liczba projektów (edytor)
@@ -265,7 +269,8 @@ function getProdQtyFromUrl() {
   const qty = _parseQtyInt(rawQty, { min: 1, max: 999 }) ?? _parseQtyInt(rawSlots, { min: 1, max: 999 });
   return qty == null ? 1 : qty;
 }
-/* ========END======== [SEKCJA 03] URL PARAMS (NICK/ORDER/OFFER/SLOTS/QTY/BUYER/SKU) =========END======== */
+/* ========END======== [SEKCJA 03] URL PARAMS (NICK/ORDER/SKU/OFFER/SLOTS/QTY/BUYER) =========END======== */
+
 
 
 
@@ -645,126 +650,107 @@ function updateUiVersionBadge() {
 /* ========END======== [SEKCJA 06] WERSJA W UI =========END======== */
 
 
-/* ========START======== [SEKCJA 07] BACKEND CONFIG (project.php) =========START======== */
-const TOKEN = getQueryParam("token");
+/* ========START======== [SEKCJA 07] BACKEND PRODUCT CONFIG (project.php) =========START======== */
 
-function setUiTitleSubtitle(title, subtitle) {
-  const t = document.getElementById("appTitleText");
-  const s = document.getElementById("appSubtitleText");
-  if (t && typeof title === "string") t.textContent = title;
-  if (s && typeof subtitle === "string") s.textContent = subtitle;
+// Pobiera konfigurację produktu z backendu (api/project.php) na podstawie tokena projektu.
+// W configu backendu (api/project.config.php) są m.in.: masks, templates, render, api.*
+// Uwaga: repoAwareCandidates() oraz REPO_BASE są zdefiniowane wyżej w pliku.
+async function fetchProjectConfig(projectToken) {
+  const url = `${REPO_BASE}/api/project.php?token=${encodeURIComponent(projectToken)}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Nie można pobrać konfiguracji projektu (${res.status})`);
+  const data = await res.json();
+  if (!data || data.ok !== true || !data.config) throw new Error("Nieprawidłowa odpowiedź z project.php");
+  return data.config;
 }
 
-async function fetchJsonWithTimeout(url, { timeoutMs = 6500 } = {}) {
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), timeoutMs);
+function normalizeProductConfig(raw) {
+  const cfg = {};
 
-  try {
-    const res = await fetch(url, { cache: "no-store", signal: ac.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * mode:
- * - "backend"  => konfiguracja z tokena (project.php)
- * - "manual"   => pełny tryb ręczny (bez tokena / gdy backend niedostępny)
- */
-function normalizeProductConfig(raw, { token, mode }) {
-  const schema_version = 1;
-
-  const ui = {
-    title: (raw?.ui?.title ?? raw?.title ?? raw?.product?.name ?? "Edytor produktu").toString(),
-    subtitle: (raw?.ui?.subtitle ?? raw?.subtitle ?? "").toString(),
+  // UI
+  cfg.ui = {
+    title: (raw?.ui?.title || "Edytor"),
+    subtitle: (raw?.ui?.subtitle || ""),
   };
 
-  const productType = (raw?.product?.type ?? raw?.type ?? "coaster").toString();
-
-  const product = raw?.product && typeof raw.product === "object" ? {
-    type: productType,
-    name: (raw?.product?.name ?? raw?.name ?? "").toString(),
+  // PRODUCT
+  cfg.product = {
+    type: raw?.product?.type || "coaster",
+    name: raw?.product?.name || "Produkt",
     size_mm: {
-      w: Number(raw?.product?.size_mm?.w ?? raw?.size_mm?.w ?? 100) || 100,
-      h: Number(raw?.product?.size_mm?.h ?? raw?.size_mm?.h ?? 100) || 100,
+      w: Number(raw?.product?.size_mm?.w || 100),
+      h: Number(raw?.product?.size_mm?.h || 100),
     },
-    corner_radius_mm: Number(raw?.product?.corner_radius_mm ?? raw?.corner_radius_mm ?? 5) || 0,
-    shape_default: (raw?.product?.shape_default ?? raw?.shape_default ?? raw?.product?.shape ?? "square").toString(),
-    shape_options: Array.isArray(raw?.product?.shape_options)
-      ? raw.product.shape_options.map(String)
-      : ["square", "circle"],
-  } : null;
-
-  const render = {
-    canvas_px: Number(raw?.render?.canvas_px ?? raw?.canvas_px ?? 1181) || 1181,
-    cut_ratio: Number(raw?.render?.cut_ratio ?? raw?.cut_ratio ?? 0.90) || 0.90,
-    print_dpi: Number(raw?.render?.print_dpi ?? raw?.print_dpi ?? raw?.product?.dpi ?? 300) || 300,
+    corner_radius_mm: Number(raw?.product?.corner_radius_mm ?? raw?.product?.corner_radius ?? 0),
+    shape_default: raw?.product?.shape_default || raw?.product?.shape || "square",
+    shape_options: Array.isArray(raw?.product?.shape_options) ? raw.product.shape_options : ["square", "circle"],
+    dpi: Number(raw?.product?.dpi || 300),
   };
 
-  const masks = {
-    square: repoAwareSingle(raw?.assets?.masks?.square) || `${REPO_BASE}/editor/assets/masks/mask_square.png`,
-    circle: repoAwareSingle(raw?.assets?.masks?.circle) || `${REPO_BASE}/editor/assets/masks/mask_circle.png`,
+  // RENDER
+  cfg.render = {
+    canvas_px: Number(raw?.render?.canvas_px || 1181),
+    cut_ratio: Number(raw?.render?.cut_ratio || 0.90),
+    print_dpi: Number(raw?.render?.print_dpi || 300),
   };
 
-  // Szablony: źródło prawdy = skan folderów (api/templates.php)
-  const list_urls = uniq([
-    ...repoAwareCandidates(`${REPO_BASE}/api/templates.php`),
-  ]);
-
-  const folder_base =
-    repoAwareSingle(raw?.assets?.templates?.folder_base) ||
-    `${REPO_BASE}/assets/templates/coasters/`;
-
-  const api = {
-    project_url: repoAwareSingle(raw?.api?.project_url) || `${REPO_BASE}/api/project.php`,
-    upload_url:
-      repoAwareSingle(raw?.api?.upload_url) ||
-      repoAwareSingle(raw?.upload_endpoint) ||
-      `${REPO_BASE}/api/upload.php`,
+  // API
+  cfg.api = {
+    project_url: raw?.api?.project_url || `${REPO_BASE}/api/project.php`,
+    upload_url: raw?.api?.upload_url || `${REPO_BASE}/api/upload.php`,
   };
 
-  return {
-    schema_version,
-    mode,
-    token: token || "",
-    ui,
-    product,
-    render,
-    assets: { masks, templates: { list_urls, folder_base } },
-    api,
-    raw: DEBUG ? raw : undefined,
+  // ASSETS
+  cfg.assets = cfg.assets || {};
+  cfg.assets.masks = {
+    square: (raw?.assets?.masks?.square || `${REPO_BASE}/editor/assets/masks/mask_square.png`),
+    circle: (raw?.assets?.masks?.circle || `${REPO_BASE}/editor/assets/masks/mask_circle.png`),
   };
-}
 
-async function loadConfigFromBackend(token) {
-  if (!token) return null;
+  // SZABLONY:
+  // Docelowo zawsze skan katalogów przez api/templates.php (auto-index folderów).
+  // JSON-y list.json/index.json traktujemy wyłącznie jako fallback/legacy.
+  const list_urls_raw = raw?.assets?.templates?.list_urls;
+  let list_urls = [];
 
-  const projectUrl = `${REPO_BASE}/api/project.php?token=${encodeURIComponent(token)}`;
-
-  try {
-    const raw = await fetchJsonWithTimeout(projectUrl, { timeoutMs: 6500 });
-
-    if (raw && raw.ok === true && raw.productConfig && typeof raw.productConfig === "object") {
-      const cfg = normalizeProductConfig(raw.productConfig, { token, mode: "backend" });
-      dlog("project.php ok:", raw.mode, cfg);
-      return cfg;
-    }
-
-    if (raw && typeof raw === "object") {
-      const cfg = normalizeProductConfig(raw, { token, mode: "backend" });
-      dlog("project.php legacy:", cfg);
-      return cfg;
-    }
-
-    throw new Error("Nieprawidłowa konfiguracja (pusty payload)");
-  } catch (e) {
-    dlog("loadConfigFromBackend failed:", e);
-    return null;
+  if (Array.isArray(list_urls_raw) && list_urls_raw.length) {
+    // preferuj templates.php jako pierwsze źródło
+    const flat = uniq(list_urls_raw.flatMap((x) => repoAwareCandidates(x)));
+    const preferred = uniq([
+      ...repoAwareCandidates(`${REPO_BASE}/api/templates.php`),
+      ...flat,
+    ]);
+    list_urls = preferred;
+  } else {
+    // twardy default: tylko skan folderów
+    list_urls = uniq([
+      ...repoAwareCandidates(`${REPO_BASE}/api/templates.php`),
+    ]);
   }
+
+  cfg.assets.templates = {
+    list_urls,
+    folder_base: raw?.assets?.templates?.folder_base || `${REPO_BASE}/assets/templates/coasters/`,
+  };
+
+  return cfg;
 }
-/* ========END======== [SEKCJA 07] BACKEND CONFIG (project.php) =========END======== */
+
+// Inicjalizacja konfiguracji projektu:
+// - token bierzemy z URL (token=...) lub z ustawień (jeśli masz to zaimplementowane wyżej)
+// - pobieramy project.php -> normalizujemy -> zwracamy cfg
+async function initProjectConfig(projectToken) {
+  if (!projectToken) throw new Error("Brak project tokena w URL");
+  const raw = await fetchProjectConfig(projectToken);
+  const normalized = normalizeProductConfig(raw);
+
+  // Jeśli w pliku istnieje dodatkowa logika override (np. applyExternalOfferOverrides),
+  // to nie dotykamy jej tutaj — będzie wywołana w dalszym flow (tam gdzie była).
+  return normalized;
+}
+
+/* ========END======== [SEKCJA 07] BACKEND PRODUCT CONFIG (project.php) =========END======== */
+
 
 
 /* ========START======== [SEKCJA 08] FALLBACK = PEŁNY TRYB RĘCZNY =========START======== */
@@ -2834,47 +2820,64 @@ async function applyProductConfig(cfg) {
 }
 /* ========END======== [SEKCJA 25] APPLY productConfig =========END======== */
 
-/* ========START======== [SEKCJA 25a] SKU OVERRIDES (NIEZBĘDNIK) =========START======== */
-/**
- * Produkty identyfikujemy po SKU (parametr sku w linku).
- * Minimalnie: ustawiamy domyślny kształt:
- * - jeśli SKU zawiera "Okrąg" / "Okrag" / kończy się "_Okrągła" -> circle
- * - w pozostałych przypadkach -> square
- */
-function applySkuOverrides(cfg) {
+/* ========START======== [SEKCJA 25a] EXTERNAL SKU/offerId OVERRIDES (NIEZBĘDNIK) =========START======== */
+function applyExternalOfferOverrides(cfg) {
   try {
-    const sku = String(getSkuFromUrl() || "").trim();
-    if (!sku) return cfg;
+    const ctx = (typeof getExternalContext === "function") ? getExternalContext() : null;
+    if (!ctx || !ctx.isExternalInit) return cfg;
 
-    const skuLow = sku.toLowerCase();
+    const sku = String(ctx.sku || getSkuFromUrl() || "").trim();
+    const offerId = String(ctx.offerId || getOfferIdFromUrl() || "").trim();
 
-    const isCircle =
-      skuLow.includes("okrąg") ||
-      skuLow.includes("okrag") ||
-      skuLow.includes("okrągła") ||
-      skuLow.includes("okragla") ||
-      skuLow.endsWith("_okrągła") ||
-      skuLow.endsWith("_okragla");
+    // Mapowanie docelowe: SKU
+    // (możesz tu dopinać kolejne SKU 1:1)
+    const mapBySku = {
+      // PRZYKŁADY – uzupełnisz realnymi SKU:
+      // "Pod_Czarna_Okrągła": { ...circle... },
+      // "Pod_Czarna_Kwadrat": { ...square... },
+    };
+
+    // Kompatybilność: jeśli nadal przychodzą stare "identyfikatory" w offerId
+    const mapByOfferId = {
+      coaster_circle_100: {
+        ui: { subtitle: "Projekt 10 cm (okrąg, spad)." },
+        product: {
+          type: "coaster",
+          name: "Podkładka 10 cm",
+          size_mm: { w: 100, h: 100 },
+          corner_radius_mm: 0,
+          shape_default: "circle",
+          shape_options: ["circle", "square"],
+        },
+      },
+      coaster_square_100_r5: {
+        ui: { subtitle: "Projekt 10×10 cm (spad)." },
+        product: {
+          type: "coaster",
+          name: "Podkładka 10×10",
+          size_mm: { w: 100, h: 100 },
+          corner_radius_mm: 5,
+          shape_default: "square",
+          shape_options: ["square", "circle"],
+        },
+      },
+    };
+
+    const ovr = (sku && mapBySku[sku]) ? mapBySku[sku] : (offerId ? mapByOfferId[offerId] : null);
+    if (!ovr) return cfg;
 
     const next = { ...cfg };
-    next.product = { ...(cfg.product || {}) };
-
-    next.product.shape_default = isCircle ? "circle" : "square";
-
-    // kosmetyka (róg tylko dla kwadratu)
-    if (isCircle) next.product.corner_radius_mm = 0;
-    else next.product.corner_radius_mm = (next.product.corner_radius_mm ?? 5);
-
-    // żeby UI pokazywało sensowny opis
-    next.ui = { ...(cfg.ui || {}) };
-    next.ui.subtitle = isCircle ? "Projekt 10 cm (okrąg, spad)." : "Projekt 10×10 cm (spad).";
+    next.ui = { ...(cfg.ui || {}), ...(ovr.ui || {}) };
+    next.product = { ...(cfg.product || {}), ...(ovr.product || {}) };
+    if (ovr.product?.shape_options) next.product.shape_options = ovr.product.shape_options;
 
     return next;
   } catch {
     return cfg;
   }
 }
-/* ========END======== [SEKCJA 25a] SKU OVERRIDES (NIEZBĘDNIK) =========END======== */
+/* ========END======== [SEKCJA 25a] EXTERNAL SKU/offerId OVERRIDES (NIEZBĘDNIK) =========END======== */
+
 
 
 /* ========START======== [SEKCJA 26] INIT =========START======== */
