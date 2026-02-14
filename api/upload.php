@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /**
  * api/upload.php
- * FILE_VERSION: 2026-02-14-02
+ * FILE_VERSION: 2026-02-14-03
  *
  * KONTRAKT TRYBÓW:
  *  - DEMO (mode=demo): upload ALWAYS OFF (403), niezależnie od tokena.
@@ -22,15 +22,15 @@ declare(strict_types=1);
  *  - obraz: pole "jpg" lub "png" (kompatybilność)
  *  - json: pole POST "json" lub plik "json_file"
  *  - buyer / nick / buyer_login / client_nick: POST (opcjonalnie) -> nick klienta do katalogu
- *  - order_id: POST (opcjonalnie) -> legacy fallback (gdy brak nicka)
+ *  - order_id: POST (opcjonalnie) -> do powiązania katalogu
  *  - file_base: POST (opcjonalnie) -> nazwa pliku (bez rozszerzenia), np. "nick_01"
  *  - mode: GET/POST "mode" (opcjonalnie) -> "demo" blokuje upload
  *
- * Zapis (NOWE):
- *  uploads/<MM-DD-NICK-XXX>/{file_base_or_generated}.{jpg|png} + {same}.json
+ * Zapis (NOWE, deterministyczne + rewizje):
+ *  uploads/<MM-DD-NICK-ORD5-Rxx>/{file_base_or_generated}.{jpg|png} + {same}.json
  *
  * Wyjście:
- *  { ok:true, id, image_url, json_url, request_id, server_ts }
+ *  { ok:true, id, image_url, json_url, order_dir, revision, is_update, message_for_user, request_id, server_ts }
  */
 
 const MAX_IMAGE_BYTES = 25_000_000; // 25 MB
@@ -39,8 +39,9 @@ const MAX_JSON_BYTES  = 2_000_000;  // 2 MB
 const SHORT_SUFFIX_LEN = 5;
 const NAME_TRIES = 20;
 
-const DIR_SUFFIX_LEN = 3; // NOWE: 3 znaki do katalogu
-const DIR_DATE_FMT  = 'm-d'; // NOWE: MM-DD
+const DIR_DATE_FMT = 'm-d'; // MM-DD
+const ORD5_LEN     = 5;
+const MAX_REV      = 99;
 
 // log
 const LOG_DIR_NAME = 'logs';
@@ -95,7 +96,7 @@ function log_line(string $line): void {
 }
 
 function fail(int $code, string $error_code, string $error_message, array $extra = []): void {
-  global $REQUEST_ID, $AUTH_CONTEXT, $ORDER_ID_CLEAN, $ORDER_DIR_NAME, $FILE_BASE_CLEAN, $MODE, $CLIENT_NICK_CLEAN;
+  global $REQUEST_ID, $AUTH_CONTEXT, $ORDER_ID_CLEAN, $ORDER_DIR_NAME, $FILE_BASE_CLEAN, $MODE, $CLIENT_NICK_CLEAN, $REVISION;
 
   $payload = array_merge([
     'ok' => false,
@@ -112,9 +113,10 @@ function fail(int $code, string $error_code, string $error_message, array $extra
   $fileBase = (string)($FILE_BASE_CLEAN ?? '');
   $mode = (string)($MODE ?? '');
   $nickMasked = (string)($CLIENT_NICK_CLEAN ?? '');
+  $rev = (string)($REVISION ?? '');
 
   log_line(sprintf(
-    '[%s] request_id=%s ip=%s status=%d ok=0 code=%s mode=%s auth_mode=%s buyer=%s order_id=%s dir=%s file_base=%s token=%s msg=%s',
+    '[%s] request_id=%s ip=%s status=%d ok=0 code=%s mode=%s auth_mode=%s buyer=%s order_id=%s dir=%s rev=%s file_base=%s token=%s msg=%s',
     now_iso(),
     $REQUEST_ID,
     $ip,
@@ -125,6 +127,7 @@ function fail(int $code, string $error_code, string $error_message, array $extra
     $nickMasked,
     $orderMasked,
     $dirName,
+    $rev,
     $fileBase,
     $tokenMasked,
     str_replace(["\n", "\r"], [' ', ' '], $error_message)
@@ -140,11 +143,11 @@ $ORDER_ID_CLEAN = '';
 $ORDER_DIR_NAME = '';
 $FILE_BASE_CLEAN = '';
 $CLIENT_NICK_CLEAN = '';
+$REVISION = '';
 $MODE = strtolower(trim((string)($_GET['mode'] ?? ($_POST['mode'] ?? ''))));
 
 /**
  * DEMO kontrakt: upload zawsze OFF.
- * Nawet jeśli ktoś dopnie token do demo linku, to tu nadal blokujemy.
  */
 if ($MODE === 'demo') {
   log_line(sprintf(
@@ -211,9 +214,6 @@ function authorize(): array {
   return ['mode' => 'project', 'project_token' => $projectToken];
 }
 
-/**
- * Legacy token (opcjonalnie)
- */
 function authorize_legacy_if_enabled(): void {
   $legacySecret = (string)getenv('LEGACY_UPLOAD_TOKEN');
   $legacySecret = trim($legacySecret);
@@ -266,44 +266,49 @@ function clean_id(string $raw, int $maxLen = 32): string {
   return $s;
 }
 
-function random_suffix(int $len): string {
-  $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ234567';
-  $out = '';
-  $max = strlen($alphabet) - 1;
-  for ($i = 0; $i < $len; $i++) $out .= $alphabet[random_int(0, $max)];
-  return $out;
+function pad2(int $n): string {
+  return str_pad((string)$n, 2, '0', STR_PAD_LEFT);
 }
 
-/**
- * Legacy: z order_id typu "ABC_s01of05" robimy "ABC".
- */
-function base_order_dir_from_clean_order_id(string $clean): string {
-  if ($clean === '') return '';
-  $base = preg_replace('~_s\d{2}of\d{1,2}$~u', '', $clean) ?? $clean;
-  return trim($base, '_-');
+function ord5_from_order_id(string $orderIdClean): string {
+  if ($orderIdClean === '') return 'NOORD';
+  $o = preg_replace('~[^A-Za-z0-9]~', '', $orderIdClean) ?? $orderIdClean;
+  $o = strtoupper($o);
+  $o = substr($o, 0, ORD5_LEN);
+  if ($o === '') return 'NOORD';
+  return str_pad($o, ORD5_LEN, '0'); // żeby zawsze było 5
 }
 
-/**
- * NOWE: katalog = MM-DD-NICK-XXX (XXX=3 losowe znaki).
- */
-function build_upload_dir_name(string $nickClean, string $fallbackLegacy): string {
+function build_base_dir_name(string $nickClean, string $ord5): string {
   $date = gmdate(DIR_DATE_FMT); // MM-DD
-  $nick = $nickClean !== '' ? $nickClean : ($fallbackLegacy !== '' ? $fallbackLegacy : 'no_nick');
-  $suf  = random_suffix(DIR_SUFFIX_LEN);
-  return $date . '-' . $nick . '-' . $suf;
+  $nick = $nickClean !== '' ? $nickClean : 'no_nick';
+  return $date . '-' . $nick . '-' . $ord5;
 }
 
-/**
- * Wybór unikalnej bazy nazwy pliku (bez rozszerzenia).
- */
+function pick_revision_dir(string $uploadRoot, string $baseName, int $maxRev): array {
+  for ($rev = 1; $rev <= $maxRev; $rev++) {
+    $revTag = 'R' . pad2($rev);
+    $dirName = $baseName . '-' . $revTag;
+    $full = $uploadRoot . DIRECTORY_SEPARATOR . $dirName;
+    if (!is_dir($full)) {
+      return [$dirName, $revTag, ($rev > 1)];
+    }
+  }
+  fail(409, 'TOO_MANY_REVISIONS', 'Too many revisions for this order/nick');
+}
+
 function pick_unique_base(string $preferred, string $dir): string {
   $preferred = trim($preferred);
 
   $tryBases = [];
   if ($preferred !== '') $tryBases[] = $preferred;
 
+  $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ234567';
   for ($i = 0; $i < NAME_TRIES; $i++) {
-    $tryBases[] = ($preferred !== '' ? ($preferred . '_' . random_suffix(SHORT_SUFFIX_LEN)) : random_suffix(SHORT_SUFFIX_LEN));
+    $out = '';
+    $max = strlen($alphabet) - 1;
+    for ($j = 0; $j < SHORT_SUFFIX_LEN; $j++) $out .= $alphabet[random_int(0, $max)];
+    $tryBases[] = ($preferred !== '' ? ($preferred . '_' . $out) : $out);
   }
 
   foreach ($tryBases as $base) {
@@ -313,23 +318,29 @@ function pick_unique_base(string $preferred, string $dir): string {
     if (!file_exists($png) && !file_exists($jpg) && !file_exists($json)) return $base;
   }
 
-  return ($preferred !== '' ? ($preferred . '_' . random_suffix(SHORT_SUFFIX_LEN + 3)) : random_suffix(SHORT_SUFFIX_LEN + 3));
+  // ostatecznie dłuższy suffix
+  $out = '';
+  $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ234567';
+  $max = strlen($alphabet) - 1;
+  for ($j = 0; $j < (SHORT_SUFFIX_LEN + 3); $j++) $out .= $alphabet[random_int(0, $max)];
+  return ($preferred !== '' ? ($preferred . '_' . $out) : $out);
 }
 
-/* ==== NICK (KLIENT) + LEGACY ORDER ==== */
+/* ==== NICK + ORDER ==== */
 $rawNick = (string)($_POST['buyer'] ?? ($_POST['nick'] ?? ($_POST['buyer_login'] ?? ($_POST['client_nick'] ?? ''))));
 $CLIENT_NICK_CLEAN = clean_id($rawNick, 32);
 
-// legacy fallback (gdy brak nicka)
-$ORDER_ID_CLEAN = clean_id((string)($_POST['order_id'] ?? ''), 32);
-$legacyBaseForDir = base_order_dir_from_clean_order_id($ORDER_ID_CLEAN);
+$ORDER_ID_CLEAN = clean_id((string)($_POST['order_id'] ?? ''), 64);
+$ORD5 = ord5_from_order_id($ORDER_ID_CLEAN);
 
-/* ==== DIR ==== */
-$ORDER_DIR_NAME = build_upload_dir_name($CLIENT_NICK_CLEAN, $legacyBaseForDir);
+/* ==== DIR (deterministyczny + rewizje) ==== */
+$baseDirName = build_base_dir_name($CLIENT_NICK_CLEAN, $ORD5);
+[$ORDER_DIR_NAME, $REVISION, $IS_UPDATE] = pick_revision_dir($uploadRoot, $baseDirName, MAX_REV);
+
 $uploadDir = $uploadRoot . DIRECTORY_SEPARATOR . $ORDER_DIR_NAME;
 ensure_dir($uploadDir, 0755);
 
-/* ==== FILE BASE (NAZWA) ==== */
+/* ==== FILE BASE ==== */
 $FILE_BASE_CLEAN = clean_id((string)($_POST['file_base'] ?? ''), 60);
 
 /* ==== PLIK OBRAZU ==== */
@@ -361,7 +372,7 @@ else {
 }
 
 /* ==== FINAL BASE NAME ==== */
-$preferredBase = $FILE_BASE_CLEAN !== '' ? $FILE_BASE_CLEAN : ($CLIENT_NICK_CLEAN !== '' ? $CLIENT_NICK_CLEAN : $ORDER_ID_CLEAN);
+$preferredBase = $FILE_BASE_CLEAN !== '' ? $FILE_BASE_CLEAN : ($CLIENT_NICK_CLEAN !== '' ? $CLIENT_NICK_CLEAN : ($ORD5 !== '' ? $ORD5 : 'project'));
 $baseName = pick_unique_base($preferredBase, $uploadDir);
 
 $id = $baseName;
@@ -410,10 +421,14 @@ if (is_string($jsonText) && $jsonText !== '') {
 /* ==== OK RESPONSE ==== */
 $baseUrl = 'https://puzzla.nazwa.pl/puzzla/projekt-podkladek/uploads/' . rawurlencode($ORDER_DIR_NAME) . '/';
 
+$messageForUser = $IS_UPDATE
+  ? 'Zapisaliśmy nową wersję projektu ✅ (zastąpi w produkcji poprzednią).'
+  : 'Projekt został zapisany i wysłany ✅';
+
 $ip = get_client_ip();
 $tokenMasked = mask_token((string)($AUTH_CONTEXT['project_token'] ?? ''));
 log_line(sprintf(
-  '[%s] request_id=%s ip=%s status=200 ok=1 mode=%s auth_mode=%s buyer=%s order_id=%s dir=%s file_base=%s token=%s file=%s bytes=%d mime=%s json=%s',
+  '[%s] request_id=%s ip=%s status=200 ok=1 mode=%s auth_mode=%s buyer=%s order_id=%s dir=%s rev=%s file_base=%s token=%s file=%s bytes=%d mime=%s json=%s update=%s',
   now_iso(),
   $REQUEST_ID,
   $ip,
@@ -422,12 +437,14 @@ log_line(sprintf(
   (string)$CLIENT_NICK_CLEAN,
   (string)$ORDER_ID_CLEAN,
   (string)$ORDER_DIR_NAME,
+  (string)$REVISION,
   (string)$FILE_BASE_CLEAN,
   $tokenMasked,
   $imageName,
   $size,
   $mime,
-  $jsonSaved ? '1' : '0'
+  $jsonSaved ? '1' : '0',
+  $IS_UPDATE ? '1' : '0'
 ));
 
 respond_json(200, [
@@ -438,10 +455,13 @@ respond_json(200, [
   'buyer' => $CLIENT_NICK_CLEAN !== '' ? $CLIENT_NICK_CLEAN : null,
   'order_id' => $ORDER_ID_CLEAN !== '' ? $ORDER_ID_CLEAN : null,
   'order_dir' => $ORDER_DIR_NAME,
+  'revision' => $REVISION,
+  'is_update' => $IS_UPDATE,
+  'message_for_user' => $messageForUser,
   'image_url' => $baseUrl . $imageName,
   'json_url' => $jsonSaved ? ($baseUrl . $jsonName) : null,
   'request_id' => $REQUEST_ID,
   'server_ts' => now_iso(),
 ]);
 
-/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-14-02 === */
+/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-14-03 === */
