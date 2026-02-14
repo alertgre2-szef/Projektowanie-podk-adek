@@ -3,16 +3,13 @@
  * PROJECT: Web Editor – Product Designer
  * FILE: api/project.php
  * ROLE: Product configuration endpoint (token → productConfig)
- *
- * KONTRAKT TRYBÓW:
- *  - GET ?mode=demo  → tryb demo (upload OFF)
- *  - GET ?token=...  → tryb production (jeśli token poprawny)
- *  - brak / zły token → fallback (demo, upload OFF)
- *
- * ZWRACA:
- *  { ok:true, mode:"demo"|"production", productConfig }
- *
- * VERSION: 2026-02-14-01
+ * CONTRACT:
+ *  - GET /api/project.php?token=... → { ok:true, mode:"production"|"demo", productConfig }
+ *  - GET /api/project.php?mode=demo → { ok:true, mode:"demo", productConfig } (wymuszenie demo, nawet jeśli ktoś dopnie token)
+ * SECURITY:
+ *  - no-store headers
+ *  - token is treated as bearer; validated against server-side map
+ * VERSION: 2026-02-14-02
  */
 
 declare(strict_types=1);
@@ -31,8 +28,9 @@ $token = trim((string)($_GET['token'] ?? ''));
 $modeParam = strtolower(trim((string)($_GET['mode'] ?? '')));
 
 /**
- * TRYB DEMO — wymuszony parametrem
- * (spójne z upload.php: mode=demo → upload OFF)
+ * DEMO (wymuszone): upload OFF, bezpieczny podgląd.
+ * Uwaga: to jest "bezpiecznik" — jeśli ktoś dopnie token do linku demo,
+ * nadal zostaje demo.
  */
 if ($modeParam === 'demo') {
   respond([
@@ -66,19 +64,16 @@ if ($modeParam === 'demo') {
       ],
       'api' => [
         'project_url' => '/api/project.php',
-        'upload_url' => '', // KLUCZOWE: upload OFF
+        'upload_url' => '', // brak w demo
       ],
     ],
   ]);
 }
 
-/**
- * PRODUKCJA — wymagany poprawny token
- */
 $map = require __DIR__ . '/project.config.php';
 
 if ($token === '' || !isset($map[$token]) || !is_array($map[$token])) {
-  // fallback bezpieczny (demo)
+  // DEMO (fallback): bezpiecznie — brak/nieznany token => bez wysyłki
   respond([
     'ok' => true,
     'mode' => 'demo',
@@ -86,7 +81,7 @@ if ($token === '' || !isset($map[$token]) || !is_array($map[$token])) {
       'schema_version' => 1,
       'ui' => [
         'title' => 'Edytor (tryb demo)',
-        'subtitle' => 'Brak lub niepoprawny token — zapis projektu wyłączony.',
+        'subtitle' => 'Brak/nieznany token — wybierz produkt w trybie demo.',
       ],
       'product' => null,
       'render' => [
@@ -110,17 +105,15 @@ if ($token === '' || !isset($map[$token]) || !is_array($map[$token])) {
       ],
       'api' => [
         'project_url' => '/api/project.php',
-        'upload_url' => '', // upload OFF
+        'upload_url' => '', // brak w demo/fallback
       ],
     ],
   ]);
 }
 
-/**
- * PRODUKCJA — token poprawny
- */
 $cfg = $map[$token];
 
+// allow extensibility: product/ui/render/assets/api overrides
 $product = $cfg['product'] ?? [];
 $ui = $cfg['ui'] ?? [];
 $render = $cfg['render'] ?? [];
@@ -176,4 +169,4 @@ respond([
   'productConfig' => $productConfig,
 ]);
 
-/* === KONIEC PLIKU — api/project.php | FILE_VERSION: 2026-02-14-01 === */
+/* === KONIEC PLIKU — api/project.php | FILE_VERSION: 2026-02-14-02 === */
