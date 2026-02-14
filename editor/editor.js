@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer.
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-14-02
+ * VERSION: 2026-02-14-06
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-14-04";
+const CACHE_VERSION = "2026-02-14-06";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -3130,5 +3130,4 @@ function applySkuOverrides(cfg) {
 
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-14-02 === */
-/* KONIEC PLIKU (v2026-02-14-02) */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-14-06 === */
