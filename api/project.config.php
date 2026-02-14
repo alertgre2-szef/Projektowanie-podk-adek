@@ -4,7 +4,7 @@
  * FILE: api/project.config.php
  * ROLE: Static product configuration map
  * SECURITY: No external input execution
- * VERSION: 2026-02-14-01
+ * VERSION: 2026-02-14-02
  */
 
 declare(strict_types=1);
@@ -72,14 +72,14 @@ return [
 
   /*
   |--------------------------------------------------------------------------
-  | PRODUKCJA (ALLEGRO) — token stały, losowy, niezgadywalny
+  | PRODUKCJA (ALLEGRO) — token stały
   |--------------------------------------------------------------------------
-  | Wklej tu swój własny długi losowy token.
+  | Stały token do linków generowanych w Niezbędniku.
   */
-  'WSTAW_TUTAJ_SWOJ_LOSOWY_TOKEN' => [
+  'Allegro2026' => [
     'ui' => [
       'title' => 'Edytor podkładek',
-      'subtitle' => 'Tryb produkcyjny',
+      'subtitle' => 'Tryb produkcyjny (Allegro)',
     ],
 
     'product' => [
@@ -122,4 +122,4 @@ return [
 
 ];
 
-/* === KONIEC PLIKU — api/project.config.php | FILE_VERSION: 2026-02-14-01 === */
+/* === KONIEC PLIKU — api/project.config.php | FILE_VERSION: 2026-02-14-02 === */
