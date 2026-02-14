@@ -389,7 +389,11 @@ Filtry służą do sekwencyjnej modyfikacji danych wejściowych.
 
 Lista wbudowanych filtrów - https://jinja.palletsprojects.com/en/2.11.x/templates/#list-of-builtin-filters
 --------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
+
+
+
+
+START------------------------------ SKU Podkładek --------------------------------------------------
 
 
 SKU podkładek
@@ -438,9 +442,9 @@ Korkowa Foto Podkładka pod Kubek z Nadrukiem Twoim Zdjęciem Korek Naturalny
 
 Foto Podkładka Kartonowa Kubek Kubki Kwadrat 9cm ze Zdjęcia. Fotopodkładka
 → Pod_Czarna_Kwadrat
---------------------------------------------------------------------------------------------------------------
+END---------------------------------SKU podkladek------------------------------------------------------
 
-
+Poniżej jest inny kod, nie wiem, czy jest starszy czy nowszy :(
 
 ✅ KOD DO WKLEJENIA (Niezbędnik Sprzedawcy / Jinja2)
 
