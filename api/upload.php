@@ -421,9 +421,13 @@ if (is_string($jsonText) && $jsonText !== '') {
 /* ==== OK RESPONSE ==== */
 $baseUrl = 'https://puzzla.nazwa.pl/puzzla/projekt-podkladek/uploads/' . rawurlencode($ORDER_DIR_NAME) . '/';
 
-$messageForUser = $IS_UPDATE
-  ? 'Zapisaliśmy nową wersję projektu ✅ (zastąpi w produkcji poprzednią).'
-  : 'Projekt został zapisany i wysłany ✅';
+if ($IS_UPDATE) {
+  $messageForUser =
+    'Zapisaliśmy nową wersję projektu ✅ ' .
+    'Uwaga: nie gwarantujemy podmiany poprzedniej wersji — jeśli już jest w produkcji. ';
+} else {
+  $messageForUser = 'Projekt został zapisany i wysłany ✅';
+}
 
 $ip = get_client_ip();
 $tokenMasked = mask_token((string)($AUTH_CONTEXT['project_token'] ?? ''));
@@ -463,5 +467,6 @@ respond_json(200, [
   'request_id' => $REQUEST_ID,
   'server_ts' => now_iso(),
 ]);
+
 
 /* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-14-03 === */
