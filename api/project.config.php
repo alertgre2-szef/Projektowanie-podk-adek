@@ -4,7 +4,7 @@
  * FILE: api/project.config.php
  * ROLE: Static product configuration map
  * SECURITY: No external input execution
- * VERSION: 2026-02-11-01
+ * VERSION: 2026-02-14-01
  */
 
 declare(strict_types=1);
@@ -55,10 +55,10 @@ return [
         'circle' => '/editor/assets/masks/mask_circle.png',
       ],
       'templates' => [
+        // Docelowo: edytor sam skanuje katalog szablonów przez API (auto-index).
+        // Zostawiamy tylko źródło dynamiczne.
         'list_urls' => [
           '/api/templates.php',
-          '/assets/templates/list.json',
-          '/assets/templates/index.json',
         ],
         'folder_base' => '/assets/templates/coasters/',
       ],
@@ -72,19 +72,54 @@ return [
 
   /*
   |--------------------------------------------------------------------------
-  | DEMO TOKEN — przykład produkcyjny
+  | PRODUKCJA (ALLEGRO) — token stały, losowy, niezgadywalny
   |--------------------------------------------------------------------------
+  | Wklej tu swój własny długi losowy token.
   */
-  'demo-token-123' => [
+  'WSTAW_TUTAJ_SWOJ_LOSOWY_TOKEN' => [
+    'ui' => [
+      'title' => 'Edytor podkładek',
+      'subtitle' => 'Tryb produkcyjny',
+    ],
+
     'product' => [
       'type' => 'coaster',
       'name' => 'Podkładka 10×10',
-      'size_mm' => ['w' => 100, 'h' => 100],
-      'shape' => 'square',
+      'size_mm' => [
+        'w' => 100,
+        'h' => 100,
+      ],
+      'corner_radius_mm' => 5,
+      'shape_default' => 'square',
+      'shape_options' => ['square', 'circle'],
       'dpi' => 300,
+    ],
+
+    'render' => [
+      'canvas_px' => 1181,
+      'cut_ratio' => 0.90,
+      'print_dpi' => 300,
+    ],
+
+    'assets' => [
+      'masks' => [
+        'square' => '/editor/assets/masks/mask_square.png',
+        'circle' => '/editor/assets/masks/mask_circle.png',
+      ],
+      'templates' => [
+        'list_urls' => [
+          '/api/templates.php',
+        ],
+        'folder_base' => '/assets/templates/coasters/',
+      ],
+    ],
+
+    'api' => [
+      'project_url' => '/api/project.php',
+      'upload_url' => '/api/upload.php',
     ],
   ],
 
 ];
 
-/* === KONIEC PLIKU — api/project.config.php | FILE_VERSION: 2026-02-11-01 === */
+/* === KONIEC PLIKU — api/project.config.php | FILE_VERSION: 2026-02-14-01 === */
