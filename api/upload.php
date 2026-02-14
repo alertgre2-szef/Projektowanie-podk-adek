@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /**
  * api/upload.php
- * FILE_VERSION: 2026-02-14-01
+ * FILE_VERSION: 2026-02-14-02
  *
  * KONTRAKT TRYBÓW:
  *  - DEMO (mode=demo): upload ALWAYS OFF (403), niezależnie od tokena.
@@ -21,12 +21,13 @@ declare(strict_types=1);
  * Wejście:
  *  - obraz: pole "jpg" lub "png" (kompatybilność)
  *  - json: pole POST "json" lub plik "json_file"
- *  - order_id: POST "order_id" (opcjonalnie)  -> dla katalogu
- *  - file_base: POST "file_base" (opcjonalnie) -> nazwa pliku (bez rozszerzenia), np. "nick_01"
+ *  - buyer / nick / buyer_login / client_nick: POST (opcjonalnie) -> nick klienta do katalogu
+ *  - order_id: POST (opcjonalnie) -> legacy fallback (gdy brak nicka)
+ *  - file_base: POST (opcjonalnie) -> nazwa pliku (bez rozszerzenia), np. "nick_01"
  *  - mode: GET/POST "mode" (opcjonalnie) -> "demo" blokuje upload
  *
- * Zapis:
- *  uploads/<base_order_id|no_order>/{file_base_or_generated}.{jpg|png} + {same}.json
+ * Zapis (NOWE):
+ *  uploads/<MM-DD-NICK-XXX>/{file_base_or_generated}.{jpg|png} + {same}.json
  *
  * Wyjście:
  *  { ok:true, id, image_url, json_url, request_id, server_ts }
@@ -37,6 +38,9 @@ const MAX_JSON_BYTES  = 2_000_000;  // 2 MB
 
 const SHORT_SUFFIX_LEN = 5;
 const NAME_TRIES = 20;
+
+const DIR_SUFFIX_LEN = 3; // NOWE: 3 znaki do katalogu
+const DIR_DATE_FMT  = 'm-d'; // NOWE: MM-DD
 
 // log
 const LOG_DIR_NAME = 'logs';
@@ -91,7 +95,7 @@ function log_line(string $line): void {
 }
 
 function fail(int $code, string $error_code, string $error_message, array $extra = []): void {
-  global $REQUEST_ID, $AUTH_CONTEXT, $ORDER_ID_CLEAN, $ORDER_DIR_NAME, $FILE_BASE_CLEAN, $MODE;
+  global $REQUEST_ID, $AUTH_CONTEXT, $ORDER_ID_CLEAN, $ORDER_DIR_NAME, $FILE_BASE_CLEAN, $MODE, $CLIENT_NICK_CLEAN;
 
   $payload = array_merge([
     'ok' => false,
@@ -107,9 +111,10 @@ function fail(int $code, string $error_code, string $error_message, array $extra
   $dirName = (string)($ORDER_DIR_NAME ?? '');
   $fileBase = (string)($FILE_BASE_CLEAN ?? '');
   $mode = (string)($MODE ?? '');
+  $nickMasked = (string)($CLIENT_NICK_CLEAN ?? '');
 
   log_line(sprintf(
-    '[%s] request_id=%s ip=%s status=%d ok=0 code=%s mode=%s auth_mode=%s order_id=%s dir=%s file_base=%s token=%s msg=%s',
+    '[%s] request_id=%s ip=%s status=%d ok=0 code=%s mode=%s auth_mode=%s buyer=%s order_id=%s dir=%s file_base=%s token=%s msg=%s',
     now_iso(),
     $REQUEST_ID,
     $ip,
@@ -117,6 +122,7 @@ function fail(int $code, string $error_code, string $error_message, array $extra
     $error_code,
     $mode,
     (string)($AUTH_CONTEXT['mode'] ?? ''),
+    $nickMasked,
     $orderMasked,
     $dirName,
     $fileBase,
@@ -133,6 +139,7 @@ $AUTH_CONTEXT = ['mode' => 'none', 'project_token' => ''];
 $ORDER_ID_CLEAN = '';
 $ORDER_DIR_NAME = '';
 $FILE_BASE_CLEAN = '';
+$CLIENT_NICK_CLEAN = '';
 $MODE = strtolower(trim((string)($_GET['mode'] ?? ($_POST['mode'] ?? ''))));
 
 /**
@@ -140,7 +147,6 @@ $MODE = strtolower(trim((string)($_GET['mode'] ?? ($_POST['mode'] ?? ''))));
  * Nawet jeśli ktoś dopnie token do demo linku, to tu nadal blokujemy.
  */
 if ($MODE === 'demo') {
-  // logujemy krótko, ale nie przechodzimy dalej
   log_line(sprintf(
     '[%s] request_id=%s ip=%s status=403 ok=0 code=%s mode=demo auth_mode=none msg=%s',
     now_iso(),
@@ -182,11 +188,9 @@ function extract_project_token(): string {
 }
 
 function authorize(): array {
-  // PRODUKCJA: wymagamy project tokena
   $projectToken = extract_project_token();
 
   if ($projectToken === '') {
-    // brak tokena != błąd „niezalogowany” frontu → to jest po prostu zabronione
     fail(403, 'UPLOAD_REQUIRES_TOKEN', 'Upload requires a valid project token');
   }
 
@@ -208,19 +212,16 @@ function authorize(): array {
 }
 
 /**
- * Legacy token (opcjonalnie):
- * domyślnie wyłączony (ENV pusty) – żeby nie było ukrytej furtki.
- * Jeśli chcesz go włączyć, ustaw env LEGACY_UPLOAD_TOKEN na serwerze.
+ * Legacy token (opcjonalnie)
  */
 function authorize_legacy_if_enabled(): void {
   $legacySecret = (string)getenv('LEGACY_UPLOAD_TOKEN');
   $legacySecret = trim($legacySecret);
-  if ($legacySecret === '') return; // wyłączone
+  if ($legacySecret === '') return;
 
   $legacy = (string)($_SERVER['HTTP_X_UPLOAD_TOKEN'] ?? ($_POST['token'] ?? ''));
   $legacy = trim($legacy);
   if ($legacy !== '' && hash_equals($legacySecret, $legacy)) {
-    // legacy jest świadomie włączony
     global $AUTH_CONTEXT;
     $AUTH_CONTEXT = ['mode' => 'legacy', 'project_token' => ''];
   }
@@ -274,7 +275,7 @@ function random_suffix(int $len): string {
 }
 
 /**
- * Z order_id typu "ABC_s01of05" robimy katalog "ABC".
+ * Legacy: z order_id typu "ABC_s01of05" robimy "ABC".
  */
 function base_order_dir_from_clean_order_id(string $clean): string {
   if ($clean === '') return '';
@@ -283,9 +284,17 @@ function base_order_dir_from_clean_order_id(string $clean): string {
 }
 
 /**
+ * NOWE: katalog = MM-DD-NICK-XXX (XXX=3 losowe znaki).
+ */
+function build_upload_dir_name(string $nickClean, string $fallbackLegacy): string {
+  $date = gmdate(DIR_DATE_FMT); // MM-DD
+  $nick = $nickClean !== '' ? $nickClean : ($fallbackLegacy !== '' ? $fallbackLegacy : 'no_nick');
+  $suf  = random_suffix(DIR_SUFFIX_LEN);
+  return $date . '-' . $nick . '-' . $suf;
+}
+
+/**
  * Wybór unikalnej bazy nazwy pliku (bez rozszerzenia).
- * Jeśli preferowana baza wolna -> używamy jej.
- * Jeśli kolizja -> dopisujemy suffix.
  */
 function pick_unique_base(string $preferred, string $dir): string {
   $preferred = trim($preferred);
@@ -293,7 +302,6 @@ function pick_unique_base(string $preferred, string $dir): string {
   $tryBases = [];
   if ($preferred !== '') $tryBases[] = $preferred;
 
-  // fallback: losowe
   for ($i = 0; $i < NAME_TRIES; $i++) {
     $tryBases[] = ($preferred !== '' ? ($preferred . '_' . random_suffix(SHORT_SUFFIX_LEN)) : random_suffix(SHORT_SUFFIX_LEN));
   }
@@ -305,15 +313,19 @@ function pick_unique_base(string $preferred, string $dir): string {
     if (!file_exists($png) && !file_exists($jpg) && !file_exists($json)) return $base;
   }
 
-  // ostatecznie dłuższy suffix
   return ($preferred !== '' ? ($preferred . '_' . random_suffix(SHORT_SUFFIX_LEN + 3)) : random_suffix(SHORT_SUFFIX_LEN + 3));
 }
 
-/* ==== ORDER / DIR ==== */
-$ORDER_ID_CLEAN = clean_id((string)($_POST['order_id'] ?? ''), 32);
-$baseForDir = base_order_dir_from_clean_order_id($ORDER_ID_CLEAN);
-$ORDER_DIR_NAME = $baseForDir !== '' ? $baseForDir : 'no_order';
+/* ==== NICK (KLIENT) + LEGACY ORDER ==== */
+$rawNick = (string)($_POST['buyer'] ?? ($_POST['nick'] ?? ($_POST['buyer_login'] ?? ($_POST['client_nick'] ?? ''))));
+$CLIENT_NICK_CLEAN = clean_id($rawNick, 32);
 
+// legacy fallback (gdy brak nicka)
+$ORDER_ID_CLEAN = clean_id((string)($_POST['order_id'] ?? ''), 32);
+$legacyBaseForDir = base_order_dir_from_clean_order_id($ORDER_ID_CLEAN);
+
+/* ==== DIR ==== */
+$ORDER_DIR_NAME = build_upload_dir_name($CLIENT_NICK_CLEAN, $legacyBaseForDir);
 $uploadDir = $uploadRoot . DIRECTORY_SEPARATOR . $ORDER_DIR_NAME;
 ensure_dir($uploadDir, 0755);
 
@@ -349,10 +361,8 @@ else {
 }
 
 /* ==== FINAL BASE NAME ==== */
-$baseName = pick_unique_base(
-  $FILE_BASE_CLEAN !== '' ? $FILE_BASE_CLEAN : $ORDER_ID_CLEAN,
-  $uploadDir
-);
+$preferredBase = $FILE_BASE_CLEAN !== '' ? $FILE_BASE_CLEAN : ($CLIENT_NICK_CLEAN !== '' ? $CLIENT_NICK_CLEAN : $ORDER_ID_CLEAN);
+$baseName = pick_unique_base($preferredBase, $uploadDir);
 
 $id = $baseName;
 
@@ -377,7 +387,6 @@ if (is_string($jsonText) && $jsonText !== '') {
   if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
     fail(400, 'INVALID_JSON', 'Invalid JSON payload', ['json_error' => json_last_error_msg()]);
   }
-  // zapisujemy oryginał (nie normalizujemy), ale wiemy że jest poprawny JSON
   @file_put_contents($jsonPath, $jsonText);
   $jsonSaved = true;
 } elseif (isset($_FILES['json_file']) && is_uploaded_file($_FILES['json_file']['tmp_name'])) {
@@ -404,12 +413,13 @@ $baseUrl = 'https://puzzla.nazwa.pl/puzzla/projekt-podkladek/uploads/' . rawurle
 $ip = get_client_ip();
 $tokenMasked = mask_token((string)($AUTH_CONTEXT['project_token'] ?? ''));
 log_line(sprintf(
-  '[%s] request_id=%s ip=%s status=200 ok=1 mode=%s auth_mode=%s order_id=%s dir=%s file_base=%s token=%s file=%s bytes=%d mime=%s json=%s',
+  '[%s] request_id=%s ip=%s status=200 ok=1 mode=%s auth_mode=%s buyer=%s order_id=%s dir=%s file_base=%s token=%s file=%s bytes=%d mime=%s json=%s',
   now_iso(),
   $REQUEST_ID,
   $ip,
   (string)$MODE,
   (string)($AUTH_CONTEXT['mode'] ?? ''),
+  (string)$CLIENT_NICK_CLEAN,
   (string)$ORDER_ID_CLEAN,
   (string)$ORDER_DIR_NAME,
   (string)$FILE_BASE_CLEAN,
@@ -425,6 +435,8 @@ respond_json(200, [
   'mode' => $MODE === '' ? 'prod' : $MODE,
   'auth_mode' => $AUTH_CONTEXT['mode'],
   'id' => $id,
+  'buyer' => $CLIENT_NICK_CLEAN !== '' ? $CLIENT_NICK_CLEAN : null,
+  'order_id' => $ORDER_ID_CLEAN !== '' ? $ORDER_ID_CLEAN : null,
   'order_dir' => $ORDER_DIR_NAME,
   'image_url' => $baseUrl . $imageName,
   'json_url' => $jsonSaved ? ($baseUrl . $jsonName) : null,
@@ -432,4 +444,4 @@ respond_json(200, [
   'server_ts' => now_iso(),
 ]);
 
-/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-14-01 === */
+/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-14-02 === */
