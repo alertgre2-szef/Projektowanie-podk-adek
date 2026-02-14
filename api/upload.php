@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /**
  * api/upload.php
- * FILE_VERSION: 2026-02-14-06
+ * FILE_VERSION: 2026-02-14-05
  *
  * KONTRAKT TRYBÓW:
  *  - DEMO (mode=demo): upload ALWAYS OFF (403), niezależnie od tokena.
@@ -22,12 +22,12 @@ declare(strict_types=1);
  *  - obraz: pole "jpg" lub "png" (kompatybilność)
  *  - json: pole POST "json" lub plik "json_file"
  *  - buyer / nick / buyer_login / client_nick: POST (opcjonalnie) -> nick klienta do katalogu
- *  - order_id: POST (opcjonalnie) -> do powiązania katalogu
+ *  - order_id: POST (opcjonalnie) -> do logów/powiązania (NIE wpływa na nazwę folderu)
  *  - file_base: POST (opcjonalnie) -> nazwa pliku (bez rozszerzenia), np. "nick_01"
  *  - mode: GET/POST "mode" (opcjonalnie) -> "demo" blokuje upload
  *
- * Zapis (NOWE, deterministyczne + rewizje):
- *  uploads/<MM-DD-NICK-ORD5-Rxx>/{file_base_or_generated}.{jpg|png} + {same}.json
+ * Zapis (czytelny + rewizje):
+ *  uploads/<MM-DD__NICK__Rxx>/{file_base_or_generated}.{jpg|png} + {same}.json
  *
  * Wyjście:
  *  { ok:true, id, image_url, json_url, order_dir, revision, is_update, message_for_user, request_id, server_ts }
@@ -40,7 +40,6 @@ const SHORT_SUFFIX_LEN = 5;
 const NAME_TRIES = 20;
 
 const DIR_DATE_FMT = 'm-d'; // MM-DD
-const ORD5_LEN     = 5;
 const MAX_REV      = 99;
 
 // log
@@ -277,31 +276,26 @@ function pad2(int $n): string {
   return str_pad((string)$n, 2, '0', STR_PAD_LEFT);
 }
 
-function ord5_from_order_id(string $orderIdClean): string {
-  if ($orderIdClean === '') return 'NOORD';
-  $o = preg_replace('~[^A-Za-z0-9]~', '', $orderIdClean) ?? $orderIdClean;
-  $o = strtoupper($o);
-  $o = substr($o, 0, ORD5_LEN);
-  if ($o === '') return 'NOORD';
-  return str_pad($o, ORD5_LEN, '0'); // żeby zawsze było 5
-}
-
-function build_base_dir_name(string $nickClean, string $ord5): string {
+/**
+ * Folder bazowy: MM-DD__NICK
+ * Rewizja: __Rxx (osobny katalog per wersja projektu)
+ */
+function build_base_dir_name(string $nickClean): string {
   $date = gmdate(DIR_DATE_FMT); // MM-DD
   $nick = $nickClean !== '' ? $nickClean : 'no_nick';
-  return $date . '-' . $nick . '-' . $ord5;
+  return $date . '__' . $nick;
 }
 
 function pick_revision_dir(string $uploadRoot, string $baseName, int $maxRev): array {
   for ($rev = 1; $rev <= $maxRev; $rev++) {
     $revTag = 'R' . pad2($rev);
-    $dirName = $baseName . '-' . $revTag;
+    $dirName = $baseName . '__' . $revTag;
     $full = $uploadRoot . DIRECTORY_SEPARATOR . $dirName;
     if (!is_dir($full)) {
       return [$dirName, $revTag, ($rev > 1)];
     }
   }
-  fail(409, 'TOO_MANY_REVISIONS', 'Too many revisions for this order/nick');
+  fail(409, 'TOO_MANY_REVISIONS', 'Too many revisions for this nick/date');
 }
 
 function pick_unique_base(string $preferred, string $dir): string {
@@ -337,11 +331,11 @@ function pick_unique_base(string $preferred, string $dir): string {
 $rawNick = (string)($_POST['buyer'] ?? ($_POST['nick'] ?? ($_POST['buyer_login'] ?? ($_POST['client_nick'] ?? ''))));
 $CLIENT_NICK_CLEAN = clean_id($rawNick, 32);
 
+// order_id zostaje do logów/odpowiedzi, ale nie wpływa na nazwę folderu
 $ORDER_ID_CLEAN = clean_id((string)($_POST['order_id'] ?? ''), 64);
-$ORD5 = ord5_from_order_id($ORDER_ID_CLEAN);
 
-/* ==== DIR (deterministyczny + rewizje) ==== */
-$baseDirName = build_base_dir_name($CLIENT_NICK_CLEAN, $ORD5);
+/* ==== DIR (czytelny + rewizje) ==== */
+$baseDirName = build_base_dir_name($CLIENT_NICK_CLEAN);
 [$ORDER_DIR_NAME, $REVISION, $IS_UPDATE] = pick_revision_dir($uploadRoot, $baseDirName, MAX_REV);
 
 $uploadDir = $uploadRoot . DIRECTORY_SEPARATOR . $ORDER_DIR_NAME;
@@ -379,7 +373,7 @@ else {
 }
 
 /* ==== FINAL BASE NAME ==== */
-$preferredBase = $FILE_BASE_CLEAN !== '' ? $FILE_BASE_CLEAN : ($CLIENT_NICK_CLEAN !== '' ? $CLIENT_NICK_CLEAN : ($ORD5 !== '' ? $ORD5 : 'project'));
+$preferredBase = $FILE_BASE_CLEAN !== '' ? $FILE_BASE_CLEAN : ($CLIENT_NICK_CLEAN !== '' ? $CLIENT_NICK_CLEAN : 'project');
 $baseName = pick_unique_base($preferredBase, $uploadDir);
 
 $id = $baseName;
@@ -483,4 +477,4 @@ respond_json(200, [
   'server_ts' => now_iso(),
 ]);
 
-/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-14-06 === */
+/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-14-05 === */
