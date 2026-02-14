@@ -2933,6 +2933,23 @@ function applyExternalOfferOverrides(cfg) {
 }
 /* ========END======== [SEKCJA 25a] EXTERNAL SKU/offerId OVERRIDES (NIEZBĘDNIK) =========END======== */
 
+/* ========START======== [SEKCJA 25b] APPLY SKU OVERRIDES (WRAPPER) =========START======== */
+/**
+ * applySkuOverrides – kompatybilność wstecz:
+ * - dziś: po prostu używamy applyExternalOfferOverrides(cfg)
+ * - jutro: tu dopniemy mapowanie SKU → konfiguracja produktu (puzzle/plakaty/itd.)
+ */
+function applySkuOverrides(cfg) {
+  try {
+    if (typeof applyExternalOfferOverrides === "function") {
+      return applyExternalOfferOverrides(cfg);
+    }
+    return cfg;
+  } catch {
+    return cfg;
+  }
+}
+/* ========END======== [SEKCJA 25b] APPLY SKU OVERRIDES (WRAPPER) =========END======== */
 
 
 /* ========START======== [SEKCJA 26] INIT =========START======== */
