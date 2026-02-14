@@ -1,4 +1,4 @@
-START ------------- kod wiadomości niezbędnika -------------------
+START ------------- kod wiadomości niezbędnika d-------------------
 
 {# ============================================================
    PUZZLA — WIADOMOŚĆ PO ZAKUPIE (NIEZBĘDNIK SPRZEDAWCY / Jinja2)
