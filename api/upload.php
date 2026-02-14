@@ -3,19 +3,27 @@ declare(strict_types=1);
 
 /**
  * api/upload.php
- * FILE_VERSION: 2026-02-11-05
+ * FILE_VERSION: 2026-02-14-01
+ *
+ * KONTRAKT TRYBÓW:
+ *  - DEMO (mode=demo): upload ALWAYS OFF (403), niezależnie od tokena.
+ *  - PRODUKCJA: upload ON tylko gdy jest poprawny project token.
  *
  * Autoryzacja (kanałowo-neutralna):
  *  - preferowane: X-Project-Token
  *  - alternatywnie: Authorization: Bearer <token>
  *  - awaryjnie: GET ?token=..., POST project_token=
- *  - legacy: X-Upload-Token (stały sekret) lub POST token=
+ *
+ * Legacy upload token:
+ *  - domyślnie WYŁĄCZONY (blokujemy chaos).
+ *  - można włączyć tylko przez ENV: LEGACY_UPLOAD_TOKEN
  *
  * Wejście:
  *  - obraz: pole "jpg" lub "png" (kompatybilność)
  *  - json: pole POST "json" lub plik "json_file"
  *  - order_id: POST "order_id" (opcjonalnie)  -> dla katalogu
  *  - file_base: POST "file_base" (opcjonalnie) -> nazwa pliku (bez rozszerzenia), np. "nick_01"
+ *  - mode: GET/POST "mode" (opcjonalnie) -> "demo" blokuje upload
  *
  * Zapis:
  *  uploads/<base_order_id|no_order>/{file_base_or_generated}.{jpg|png} + {same}.json
@@ -23,8 +31,6 @@ declare(strict_types=1);
  * Wyjście:
  *  { ok:true, id, image_url, json_url, request_id, server_ts }
  */
-
-const LEGACY_UPLOAD_TOKEN = '4f9c7d2a8e1b5f63c0a9e72d41f8b6c39e5a0d7f1b2c8e4a6d9f3c1b7e0a2f5';
 
 const MAX_IMAGE_BYTES = 25_000_000; // 25 MB
 const MAX_JSON_BYTES  = 2_000_000;  // 2 MB
@@ -85,7 +91,7 @@ function log_line(string $line): void {
 }
 
 function fail(int $code, string $error_code, string $error_message, array $extra = []): void {
-  global $REQUEST_ID, $AUTH_CONTEXT, $ORDER_ID_CLEAN, $ORDER_DIR_NAME, $FILE_BASE_CLEAN;
+  global $REQUEST_ID, $AUTH_CONTEXT, $ORDER_ID_CLEAN, $ORDER_DIR_NAME, $FILE_BASE_CLEAN, $MODE;
 
   $payload = array_merge([
     'ok' => false,
@@ -100,14 +106,17 @@ function fail(int $code, string $error_code, string $error_message, array $extra
   $orderMasked = (string)($ORDER_ID_CLEAN ?? '');
   $dirName = (string)($ORDER_DIR_NAME ?? '');
   $fileBase = (string)($FILE_BASE_CLEAN ?? '');
+  $mode = (string)($MODE ?? '');
 
   log_line(sprintf(
-    '[%s] request_id=%s ip=%s status=%d ok=0 code=%s order_id=%s dir=%s file_base=%s token=%s msg=%s',
+    '[%s] request_id=%s ip=%s status=%d ok=0 code=%s mode=%s auth_mode=%s order_id=%s dir=%s file_base=%s token=%s msg=%s',
     now_iso(),
     $REQUEST_ID,
     $ip,
     $code,
     $error_code,
+    $mode,
+    (string)($AUTH_CONTEXT['mode'] ?? ''),
     $orderMasked,
     $dirName,
     $fileBase,
@@ -124,6 +133,31 @@ $AUTH_CONTEXT = ['mode' => 'none', 'project_token' => ''];
 $ORDER_ID_CLEAN = '';
 $ORDER_DIR_NAME = '';
 $FILE_BASE_CLEAN = '';
+$MODE = strtolower(trim((string)($_GET['mode'] ?? ($_POST['mode'] ?? ''))));
+
+/**
+ * DEMO kontrakt: upload zawsze OFF.
+ * Nawet jeśli ktoś dopnie token do demo linku, to tu nadal blokujemy.
+ */
+if ($MODE === 'demo') {
+  // logujemy krótko, ale nie przechodzimy dalej
+  log_line(sprintf(
+    '[%s] request_id=%s ip=%s status=403 ok=0 code=%s mode=demo auth_mode=none msg=%s',
+    now_iso(),
+    $REQUEST_ID,
+    get_client_ip(),
+    'DEMO_UPLOAD_DISABLED',
+    'Upload disabled in demo mode'
+  ));
+
+  respond_json(403, [
+    'ok' => false,
+    'error_code' => 'DEMO_UPLOAD_DISABLED',
+    'error_message' => 'Upload is disabled in demo mode',
+    'request_id' => $REQUEST_ID,
+    'server_ts' => now_iso(),
+  ]);
+}
 
 function extract_project_token(): string {
   $t = (string)($_SERVER['HTTP_X_PROJECT_TOKEN'] ?? '');
@@ -148,37 +182,53 @@ function extract_project_token(): string {
 }
 
 function authorize(): array {
+  // PRODUKCJA: wymagamy project tokena
   $projectToken = extract_project_token();
 
-  if ($projectToken !== '') {
-    $cfgPath = __DIR__ . '/project.config.php';
-    if (!is_file($cfgPath) || !is_readable($cfgPath)) {
-      fail(500, 'SERVER_MISCONFIG', 'project.config.php missing or unreadable');
-    }
-
-    $map = require $cfgPath;
-    if (!is_array($map)) {
-      fail(500, 'SERVER_MISCONFIG', 'project.config.php must return array');
-    }
-
-    if (!array_key_exists($projectToken, $map)) {
-      fail(401, 'UNAUTHORIZED_UNKNOWN_PROJECT_TOKEN', 'Unauthorized (unknown project token)');
-    }
-
-    return ['mode' => 'project', 'project_token' => $projectToken];
+  if ($projectToken === '') {
+    // brak tokena != błąd „niezalogowany” frontu → to jest po prostu zabronione
+    fail(403, 'UPLOAD_REQUIRES_TOKEN', 'Upload requires a valid project token');
   }
+
+  $cfgPath = __DIR__ . '/project.config.php';
+  if (!is_file($cfgPath) || !is_readable($cfgPath)) {
+    fail(500, 'SERVER_MISCONFIG', 'project.config.php missing or unreadable');
+  }
+
+  $map = require $cfgPath;
+  if (!is_array($map)) {
+    fail(500, 'SERVER_MISCONFIG', 'project.config.php must return array');
+  }
+
+  if (!array_key_exists($projectToken, $map)) {
+    fail(401, 'UNAUTHORIZED_UNKNOWN_PROJECT_TOKEN', 'Unauthorized (unknown project token)');
+  }
+
+  return ['mode' => 'project', 'project_token' => $projectToken];
+}
+
+/**
+ * Legacy token (opcjonalnie):
+ * domyślnie wyłączony (ENV pusty) – żeby nie było ukrytej furtki.
+ * Jeśli chcesz go włączyć, ustaw env LEGACY_UPLOAD_TOKEN na serwerze.
+ */
+function authorize_legacy_if_enabled(): void {
+  $legacySecret = (string)getenv('LEGACY_UPLOAD_TOKEN');
+  $legacySecret = trim($legacySecret);
+  if ($legacySecret === '') return; // wyłączone
 
   $legacy = (string)($_SERVER['HTTP_X_UPLOAD_TOKEN'] ?? ($_POST['token'] ?? ''));
   $legacy = trim($legacy);
-  if ($legacy !== '' && hash_equals(LEGACY_UPLOAD_TOKEN, $legacy)) {
-    return ['mode' => 'legacy', 'project_token' => ''];
+  if ($legacy !== '' && hash_equals($legacySecret, $legacy)) {
+    // legacy jest świadomie włączony
+    global $AUTH_CONTEXT;
+    $AUTH_CONTEXT = ['mode' => 'legacy', 'project_token' => ''];
   }
-
-  fail(401, 'UNAUTHORIZED', 'Unauthorized');
 }
 
 /* ==== AUTH ==== */
 $AUTH_CONTEXT = authorize();
+authorize_legacy_if_enabled();
 
 /* ==== ŚCIEŻKI ==== */
 $baseDir = realpath(__DIR__ . '/..');
@@ -320,16 +370,32 @@ $jsonPath = $uploadDir . DIRECTORY_SEPARATOR . $jsonName;
 
 $jsonText = $_POST['json'] ?? '';
 if (is_string($jsonText) && $jsonText !== '') {
-  if (strlen($jsonText) <= MAX_JSON_BYTES) {
-    @file_put_contents($jsonPath, $jsonText);
-    $jsonSaved = true;
+  if (strlen($jsonText) > MAX_JSON_BYTES) {
+    fail(413, 'JSON_TOO_LARGE', 'JSON too large', ['max_bytes' => MAX_JSON_BYTES, 'bytes' => strlen($jsonText)]);
   }
+  $decoded = json_decode($jsonText, true);
+  if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
+    fail(400, 'INVALID_JSON', 'Invalid JSON payload', ['json_error' => json_last_error_msg()]);
+  }
+  // zapisujemy oryginał (nie normalizujemy), ale wiemy że jest poprawny JSON
+  @file_put_contents($jsonPath, $jsonText);
+  $jsonSaved = true;
 } elseif (isset($_FILES['json_file']) && is_uploaded_file($_FILES['json_file']['tmp_name'])) {
   $js = (int)($_FILES['json_file']['size'] ?? 0);
-  if ($js <= MAX_JSON_BYTES) {
-    @move_uploaded_file($_FILES['json_file']['tmp_name'], $jsonPath);
-    $jsonSaved = true;
+  if ($js > MAX_JSON_BYTES) {
+    fail(413, 'JSON_FILE_TOO_LARGE', 'JSON file too large', ['max_bytes' => MAX_JSON_BYTES, 'bytes' => $js]);
   }
+
+  $raw = (string)file_get_contents($_FILES['json_file']['tmp_name']);
+  if ($raw !== '') {
+    $decoded = json_decode($raw, true);
+    if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
+      fail(400, 'INVALID_JSON_FILE', 'Invalid JSON file', ['json_error' => json_last_error_msg()]);
+    }
+  }
+
+  @move_uploaded_file($_FILES['json_file']['tmp_name'], $jsonPath);
+  $jsonSaved = true;
 }
 
 /* ==== OK RESPONSE ==== */
@@ -338,10 +404,11 @@ $baseUrl = 'https://puzzla.nazwa.pl/puzzla/projekt-podkladek/uploads/' . rawurle
 $ip = get_client_ip();
 $tokenMasked = mask_token((string)($AUTH_CONTEXT['project_token'] ?? ''));
 log_line(sprintf(
-  '[%s] request_id=%s ip=%s status=200 ok=1 mode=%s order_id=%s dir=%s file_base=%s token=%s file=%s bytes=%d mime=%s json=%s',
+  '[%s] request_id=%s ip=%s status=200 ok=1 mode=%s auth_mode=%s order_id=%s dir=%s file_base=%s token=%s file=%s bytes=%d mime=%s json=%s',
   now_iso(),
   $REQUEST_ID,
   $ip,
+  (string)$MODE,
   (string)($AUTH_CONTEXT['mode'] ?? ''),
   (string)$ORDER_ID_CLEAN,
   (string)$ORDER_DIR_NAME,
@@ -355,6 +422,7 @@ log_line(sprintf(
 
 respond_json(200, [
   'ok' => true,
+  'mode' => $MODE === '' ? 'prod' : $MODE,
   'auth_mode' => $AUTH_CONTEXT['mode'],
   'id' => $id,
   'order_dir' => $ORDER_DIR_NAME,
@@ -364,4 +432,4 @@ respond_json(200, [
   'server_ts' => now_iso(),
 ]);
 
-/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-11-05 === */
+/* === KONIEC PLIKU — api/upload.php | FILE_VERSION: 2026-02-14-01 === */
