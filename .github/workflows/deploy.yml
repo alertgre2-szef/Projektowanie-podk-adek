@@ -23,5 +23,11 @@ jobs:
           local-dir: ./
 
           exclude: |
-            **/.git*
+            **/.git
+            **/.git/**
+            **/.github
             **/.github/**
+            **/.DS_Store
+            **/Thumbs.db
+            **/*.log
+# KONIEC PLIKU (deploy.yml v1)
