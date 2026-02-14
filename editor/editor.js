@@ -3,7 +3,7 @@
  * PROJECT: Web Editor – Product Designer .
  * FILE: editor/editor.js
  * ROLE: Frontend editor runtime (token → productConfig → render → export/upload)
- * VERSION: 2026-02-13-09
+ * VERSION: 2026-02-14-02
  */
 
 /* ========START======== [SEKCJA 01] UTIL + DEBUG =========START======== */
@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-13-09";
+const CACHE_VERSION = "2026-02-14-02";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -125,7 +125,7 @@ function wireThemeButtons() {
 /* ========END======== [SEKCJA 02] THEME =========END======== */
 
 
-/* ========START======== [SEKCJA 03] URL PARAMS (NICK/ORDER/OFFER/SLOTS/QTY/BUYER) =========START======== */
+/* ========START======== [SEKCJA 03] URL PARAMS (NICK/ORDER/OFFER/SLOTS/QTY/BUYER/SKU) =========START======== */
 function _parseHashParams() {
   const h = (location.hash || "").replace(/^#/, "").trim();
   if (!h) return new URLSearchParams();
@@ -147,15 +147,11 @@ function getUrlParamAny(keys) {
 
 /**
  * ExternalContext – parametry z linka z Niezbędnika:
- * order, offerId, slots, qty, buyer
+ * order, offerId, slots, qty, buyer, sku
  *
  * NOWA LOGIKA:
  * - slots => liczba projektów (slotów w edytorze)
  * - qty   => liczba sztuk do produkcji (może być > slots; np. komplet)
- *
- * Kompatybilność:
- * - stare linki: qty/n bez slots -> traktujemy jako slots=qty i qty=qty
- * - jeśli podano tylko slots -> qty=slots
  */
 const EXTERNAL_CTX = {
   isExternalInit: false,
@@ -164,7 +160,8 @@ const EXTERNAL_CTX = {
   slotsCount: 1,
   prodQty: 1,
   buyerLogin: "",
-  raw: { order: "", offerId: "", slots: "", qty: "", buyer: "" },
+  sku: "",
+  raw: { order: "", offerId: "", slots: "", qty: "", buyer: "", sku: "" },
 };
 
 function _parseQtyInt(raw, { min = 1, max = 999 } = {}) {
@@ -179,24 +176,20 @@ function initExternalContextFromUrl() {
   const order = getUrlParamAny(["order", "order_id"]);
   const offerId = getUrlParamAny(["offerId", "offer_id", "offer"]);
 
-  // NOWE:
   const slotsRaw = getUrlParamAny(["slots", "s", "projects"]);
   const qtyRaw = getUrlParamAny(["qty", "q", "quantity", "count"]);
-
-  // STARE: n bywało używane jako ilość slotów
   const legacyN = getUrlParamAny(["n"]);
 
   const buyer = getUrlParamAny(["buyer", "login", "user"]);
+  const sku = getUrlParamAny(["sku", "external_id", "externalId"]);
 
-  EXTERNAL_CTX.raw = { order, offerId, slots: slotsRaw || legacyN, qty: qtyRaw || "", buyer };
+  EXTERNAL_CTX.raw = { order, offerId, slots: slotsRaw || legacyN, qty: qtyRaw || "", buyer, sku };
 
-  // slots: preferuj "slots", fallback do legacy "n", a jeśli brak => fallback do qty
   const slotsParsed =
     _parseQtyInt(slotsRaw, { min: 1, max: 999 }) ??
     _parseQtyInt(legacyN, { min: 1, max: 999 }) ??
     _parseQtyInt(qtyRaw, { min: 1, max: 999 });
 
-  // qty: preferuj "qty", fallback do slots
   const qtyParsed =
     _parseQtyInt(qtyRaw, { min: 1, max: 999 }) ??
     slotsParsed;
@@ -204,8 +197,6 @@ function initExternalContextFromUrl() {
   const slotsCount = slotsParsed == null ? 1 : slotsParsed;
   const prodQty = qtyParsed == null ? slotsCount : qtyParsed;
 
-  // Tryb zewnętrzny TYLKO jeśli komplet minimum jest poprawny:
-  // order + offerId + (slots lub qty poprawne)
   if (order && offerId && (slotsParsed != null || qtyParsed != null)) {
     EXTERNAL_CTX.isExternalInit = true;
     EXTERNAL_CTX.orderId = order;
@@ -213,6 +204,7 @@ function initExternalContextFromUrl() {
     EXTERNAL_CTX.slotsCount = slotsCount;
     EXTERNAL_CTX.prodQty = prodQty;
     EXTERNAL_CTX.buyerLogin = buyer || "";
+    EXTERNAL_CTX.sku = sku || "";
   } else {
     EXTERNAL_CTX.isExternalInit = false;
     EXTERNAL_CTX.orderId = "";
@@ -220,6 +212,7 @@ function initExternalContextFromUrl() {
     EXTERNAL_CTX.slotsCount = 1;
     EXTERNAL_CTX.prodQty = 1;
     EXTERNAL_CTX.buyerLogin = "";
+    EXTERNAL_CTX.sku = sku || "";
   }
 }
 
@@ -229,8 +222,6 @@ initExternalContextFromUrl();
 function getExternalContext() { return EXTERNAL_CTX; }
 
 function getNickFromUrl() {
-  // nick to nie buyer – ale jako fallback nadal wspieramy
-  // Priorytet: nick → buyer → (stare) order
   return getUrlParamAny(["nick", "buyer", "order", "order_id"]);
 }
 
@@ -247,6 +238,11 @@ function getOfferIdFromUrl() {
 function getBuyerLoginFromUrl() {
   if (EXTERNAL_CTX.isExternalInit && EXTERNAL_CTX.buyerLogin) return EXTERNAL_CTX.buyerLogin;
   return getUrlParamAny(["buyer", "login", "user"]);
+}
+
+function getSkuFromUrl() {
+  if (EXTERNAL_CTX.isExternalInit && EXTERNAL_CTX.sku) return EXTERNAL_CTX.sku;
+  return getUrlParamAny(["sku", "external_id", "externalId"]);
 }
 
 // SLOTY: liczba projektów (edytor)
@@ -269,7 +265,7 @@ function getProdQtyFromUrl() {
   const qty = _parseQtyInt(rawQty, { min: 1, max: 999 }) ?? _parseQtyInt(rawSlots, { min: 1, max: 999 });
   return qty == null ? 1 : qty;
 }
-/* ========END======== [SEKCJA 03] URL PARAMS (NICK/ORDER/OFFER/SLOTS/QTY/BUYER) =========END======== */
+/* ========END======== [SEKCJA 03] URL PARAMS (NICK/ORDER/OFFER/SLOTS/QTY/BUYER/SKU) =========END======== */
 
 
 
@@ -712,19 +708,10 @@ function normalizeProductConfig(raw, { token, mode }) {
     circle: repoAwareSingle(raw?.assets?.masks?.circle) || `${REPO_BASE}/editor/assets/masks/mask_circle.png`,
   };
 
-  const list_urls_raw = raw?.assets?.templates?.list_urls;
-  let list_urls = [];
-
-  if (Array.isArray(list_urls_raw) && list_urls_raw.length) {
-    list_urls = uniq(list_urls_raw.flatMap((x) => repoAwareCandidates(x)));
-  } else {
-    list_urls = uniq([
-      ...repoAwareCandidates(raw?.templates_endpoint),
-      ...repoAwareCandidates(`${REPO_BASE}/api/templates.php`),
-      ...repoAwareCandidates(`${REPO_BASE}/assets/templates/list.json`),
-      ...repoAwareCandidates(`${REPO_BASE}/assets/templates/index.json`),
-    ]);
-  }
+  // Szablony: źródło prawdy = skan folderów (api/templates.php)
+  const list_urls = uniq([
+    ...repoAwareCandidates(`${REPO_BASE}/api/templates.php`),
+  ]);
 
   const folder_base =
     repoAwareSingle(raw?.assets?.templates?.folder_base) ||
@@ -826,7 +813,7 @@ function showProductManualChooser() {
       if (!preset) return;
 
       const cfg = normalizeProductConfig(preset, { token: "", mode: "manual" });
-      await applyProductConfig(cfg);
+      await applyProductConfig(applySkuOverrides(cfg));
 
       productSelectCard.style.display = "none";
       toast("Ustawienia produktu zastosowane (tryb ręczny).");
@@ -1055,7 +1042,7 @@ function refreshExportButtons() {
 
   updateSlotUi();
 }
-/* ========END======== [SEKCJA 11] EXPORT BUTTONS (WYSYŁKA ZAWSZE AKTYWNA) =========END======== */
+/* ========END======== [SEKCJA 11] EXPORT BUTTONS (WYSYŁKA ZAWSYŁKA ZAWSZE AKTYWNA) =========END======== */
 
 
 
@@ -1362,7 +1349,7 @@ function drawTemplateEditOverlay() {
   ctx.drawImage(templateEditImg, 0, 0, CANVAS_PX, CANVAS_PX);
 }
 
-/* --- NOWE: overlay do eksportu preview (mask + watermark) --- */
+/* --- overlay do eksportu preview (mask + watermark) --- */
 async function drawPreviewOverlays() {
   const maskUrl =
     shape === "circle"
@@ -1434,13 +1421,10 @@ function persistCurrentSlotState() {
   s.shape = shape;
   s.templateId = currentTemplate ? String(currentTemplate.id || "") : "";
   s.rotationDeg = rotationDeg;
-  // coverScale: NIE zapisujemy (pochodna)
   s.userScale = userScale;
   s.offsetX = offsetX;
   s.offsetY = offsetY;
   s.freeMove = freeMove;
-
-  // photoDataUrl nie ruszamy automatycznie
 }
 
 function persistAndSave() {
@@ -1455,7 +1439,6 @@ async function applySlotState(seq = 0) {
 
   if (seq && seq !== slotApplySeq) return;
 
-  // ===== HARD SWITCH: natychmiast ustaw runtime z danych slota =====
   rotationDeg = normDeg(s.rotationDeg || 0);
   freeMove = !!s.freeMove;
   syncFreeMoveButton();
@@ -1464,20 +1447,17 @@ async function applySlotState(seq = 0) {
   offsetX = Number(s.offsetX || 0) || 0;
   offsetY = Number(s.offsetY || 0) || 0;
 
-  // usuń obraz runtime na czas doczytania (żeby nie było “starego”)
   uploadedImg = null;
-  templateEditImg = null; // też nie pokazuj overlay ze starego slota
+  templateEditImg = null;
 
   redraw();
   updateStatusBar();
   refreshExportButtons();
 
-  // ===== 1) shape =====
   if (s.shape) await setShape(String(s.shape), { skipHistory: true });
   if (seq && seq !== slotApplySeq) return;
   if (slotIndex !== currentSlot) return;
 
-  // ===== 2) template =====
   if (s.templateId) {
     currentTemplate = { id: s.templateId, name: s.templateId };
     await applyTemplate(currentTemplate, { skipHistory: true, silentErrors: true, slotIndex });
@@ -1487,7 +1467,6 @@ async function applySlotState(seq = 0) {
     clearTemplateSelection({ skipHistory: true });
   }
 
-  // ===== 3) photo =====
   if (s.photoDataUrl) {
     try {
       const img = await loadImageFromDataUrl(s.photoDataUrl);
@@ -1502,7 +1481,6 @@ async function applySlotState(seq = 0) {
     uploadedImg = null;
   }
 
-  // ===== 4) clamp/cover po wczytaniu zdjęcia =====
   rotationDeg = normDeg(s.rotationDeg || 0);
   freeMove = !!s.freeMove;
   syncFreeMoveButton();
@@ -1519,7 +1497,6 @@ async function applySlotState(seq = 0) {
       applyClampToOffsets();
     }
 
-    // utrwal po clamp (legalne wartości)
     s.rotationDeg = rotationDeg;
     s.freeMove = freeMove;
     s.userScale = userScale;
@@ -1569,14 +1546,12 @@ if (photoInput) {
         return;
       }
 
-      // zapis do slota źródłowego od razu
       if (slots[slotAtStart]) slots[slotAtStart].photoDataUrl = dataUrl;
       saveSlotsToLocal();
 
       try {
         const img = await loadImageFromDataUrl(dataUrl);
 
-        // jeśli user zmienił slot w międzyczasie — nie ruszaj UI
         if (slotAtStart !== currentSlot) {
           toast(`Zdjęcie wgrane ✅ (projekt ${slotAtStart + 1}/${SLOTS_COUNT})`);
           if (photoInput) photoInput.value = "";
@@ -1589,7 +1564,6 @@ if (photoInput) {
 
         resetPhotoTransformToCover();
 
-        // twarda izolacja: zapis transform do bieżącego slota
         if (slots[currentSlot]) {
           slots[currentSlot].photoDataUrl = dataUrl;
           slots[currentSlot].rotationDeg = rotationDeg;
@@ -1639,7 +1613,6 @@ function setRotation(nextDeg, opts = {}) {
   updateStatusBar();
   maybeWarnQuality(false);
 
-  // twarda izolacja: zapis do bieżącego slota natychmiast
   if (slots[currentSlot]) {
     slots[currentSlot].rotationDeg = rotationDeg;
     slots[currentSlot].userScale = userScale;
@@ -1684,8 +1657,6 @@ function _writeTransformToCurrentSlot() {
 
 function setUserScaleKeepingPoint(newUserScale) {
   if (!uploadedImg) return;
-
-  // BLOKADA: jeśli przełączamy slot, nie zapisuj / nie ruszaj
   if (isApplyingSlot) return;
 
   newUserScale = clamp(newUserScale, getMinUserScale(), MAX_USER_SCALE);
@@ -1757,7 +1728,6 @@ let gestureMoved = false;
 function commitGestureIfActive() {
   if (!gestureActive) return;
 
-  // jeśli w trakcie była zmiana slota, nie commituj
   if (isApplyingSlot) {
     gestureActive = false;
     gestureMoved = false;
@@ -1897,14 +1867,11 @@ canvas.addEventListener(
 );
 
 function wheelHistoryCommit() {
-  // zapamiętaj slot, którego dotyczy wheel
   wheelCommitSlot = currentSlot;
 
   if (wheelTimer) window.clearTimeout(wheelTimer);
   wheelTimer = window.setTimeout(() => {
     if (isApplyingSlot) { wheelTimer = 0; return; }
-
-    // jeśli w międzyczasie zmieniono slot — nie zapisuj
     if (currentSlot !== wheelCommitSlot) {
       wheelTimer = 0;
       return;
@@ -1952,7 +1919,7 @@ if (btnZoomOut) {
 
 
 
-/* ========START======== [SEKCJA 19] SZABLONY =========START======== */
+/* ========START======== [SEKCJA 19] SZABLONY (SKAN FOLDERÓW) =========START======== */
 let templateReqSeq = 0;
 
 async function fetchJsonFirstOk(urls) {
@@ -1968,11 +1935,10 @@ async function fetchJsonFirstOk(urls) {
 }
 
 async function loadTemplatesFromConfig() {
-  const candidates = productConfig?.assets?.templates?.list_urls || [
-    `${REPO_BASE}/api/templates.php`,
-    `${REPO_BASE}/assets/templates/list.json`,
-    `${REPO_BASE}/assets/templates/index.json`,
-  ];
+  // ŹRÓDŁO PRAWDY: skan katalogów (api/templates.php)
+  const candidates = uniq([
+    ...repoAwareCandidates(`${REPO_BASE}/api/templates.php`),
+  ]);
 
   const data = await fetchJsonFirstOk(candidates);
 
@@ -2026,7 +1992,6 @@ function renderTemplateGrid(templates) {
     item.onclick = async () => {
       currentTemplate = t;
 
-      // zapis templateId natychmiast
       persistAndSave();
 
       await applyTemplate(t, { slotIndex: currentSlot });
@@ -2085,7 +2050,7 @@ function clearTemplateSelection(opts = {}) {
 
   persistAndSave();
 }
-/* ========END======== [SEKCJA 19] SZABLONY =========END======== */
+/* ========END======== [SEKCJA 19] SZABLONY (SKAN FOLDERÓW) =========END======== */
 
 
 /* ========START======== [SEKCJA 20] EXPORT (NAZWY + PREVIEW JPG) =========START======== */
@@ -2141,7 +2106,7 @@ if (btnDownloadPreview) {
 
     a.click();
 
-    redraw(); // przywracamy widok edytora
+    redraw();
 
     toast("Zapisano podgląd z maską i watermarkiem ✅");
   });
@@ -2241,6 +2206,7 @@ function closeErrorOverlay() {
 
 
 
+
 /* ========START======== [SEKCJA 22] UPLOAD + PROJECT JSON + RENDER PRINT =========START======== */
 const PROJECT_JSON_SCHEMA_VERSION = 3;
 
@@ -2276,15 +2242,14 @@ function buildProjectJson({ slotIndex, slotTotal, productionTotal, copiesForThis
       url_nick_raw: urlNickRaw || "",
       url_order_id_raw: urlOrderIdRaw || "",
 
-      // NOWE:
       slots_count: slotTotal,
       production_qty: productionTotal,
       slot_index: slotIndex + 1,
       copies_for_this_slot: copiesForThisSlot,
 
-      // Niezbędnik (jeśli link był poprawny) – do przyszłego mapowania/automatyzacji
       offer_id: (getExternalContext()?.isExternalInit ? (getExternalContext()?.offerId || "") : ""),
       buyer_login: (getExternalContext()?.isExternalInit ? (getExternalContext()?.buyerLogin || "") : ""),
+      sku: getSkuFromUrl() || "",
     },
 
     product: {
@@ -2317,7 +2282,7 @@ function buildProjectJson({ slotIndex, slotTotal, productionTotal, copiesForThis
   }, null, 2);
 }
 
-/** NICK: czerwony tekst + biała obwódka (w spadzie) — tylko na PRINT */
+/** NICK: czerwony tekst + biała obwódka — tylko na PRINT */
 function drawNickLabelOnPrint() {
   const nick = (nickInput?.value || "").trim();
   if (!nick) return;
@@ -2325,7 +2290,6 @@ function drawNickLabelOnPrint() {
   const fontPx = Math.max(12, Math.round((PRINT_DPI * 6) / 72));
   const pad = Math.max(2, Math.round(fontPx * 0.22));
 
-  // 0px od krawędzi (maksymalnie blisko)
   const x = 0;
   const y = 0;
 
@@ -2336,22 +2300,18 @@ function drawNickLabelOnPrint() {
 
   const text = nick.length > 32 ? (nick.slice(0, 32) + "…") : nick;
 
-  // Lepsza czytelność: mocniejsza obwódka + delikatny cień
   ctx.shadowColor = "rgba(0,0,0,0.35)";
   ctx.shadowBlur = Math.max(1, Math.round(fontPx * 0.10));
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 0;
 
-  // biała obwódka
   ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.30));
   ctx.strokeStyle = "#ffffff";
   ctx.strokeText(text, x + pad, y + pad);
 
-  // wyłącz cień dla wypełnienia
   ctx.shadowColor = "transparent";
   ctx.shadowBlur = 0;
 
-  // czerwony fill
   ctx.fillStyle = "#d00000";
   ctx.fillText(text, x + pad, y + pad);
 
@@ -2480,7 +2440,6 @@ async function uploadToServer(blob, jsonText, filename, orderIdForUpload, fileBa
 
   const headers = {};
 
-  // FIX 401: token bierzemy z productConfig LUB z URL (fallback)
   const tokenForHeader =
     (productConfig?.token ? String(productConfig.token) : "") ||
     (getQueryParam("token") ? String(getQueryParam("token")) : "");
@@ -2505,7 +2464,6 @@ async function uploadToServer(blob, jsonText, filename, orderIdForUpload, fileBa
   return data || { ok: true };
 }
 /* ========END======== [SEKCJA 22] UPLOAD + PROJECT JSON + RENDER PRINT =========END======== */
-
 
 
 
@@ -2673,7 +2631,6 @@ async function ensureAllSlotsHavePhotosOrConfirm() {
   return false;
 }
 
-// Rozdział sztuk do produkcji na sloty (jeśli qty != slots)
 function copiesForSlotIndex(i) {
   const slotsN = Math.max(1, SLOTS_COUNT);
   const total = Math.max(1, PROD_QTY);
@@ -2709,16 +2666,13 @@ async function sendToProduction(skipNickCheck = false) {
     persistCurrentSlotState();
     saveSlotsToLocal();
 
-    // KATALOG uploadu ma wynikać z NICKU (stabilnie)
     const nickBase = sanitizeFileBase(nick || "projekt");
     const uploadDirId = nickBase;
 
-    // order_id (jeśli istnieje w URL) – zostaje w JSON jako metadane
     const urlOrderIdRaw = getOrderIdFromUrl();
     const baseOrderId = sanitizeOrderId(urlOrderIdRaw) || "";
     const orderIdForJson = baseOrderId || nickBase;
 
-    // zbieramy dokładnie tyle renderów, ile sztuk do produkcji (po powieleniu)
     const productionBlobs = [];
 
     for (let i = 0; i < SLOTS_COUNT; i++) {
@@ -2746,7 +2700,6 @@ async function sendToProduction(skipNickCheck = false) {
         baseOrderId: orderIdForJson
       });
 
-      // render 1 raz dla slota, a potem powielamy logicznie (upload + arkusz)
       const jpgBlob = await renderProductionJpgBlob();
 
       for (let c = 1; c <= copies; c++) {
@@ -2766,7 +2719,6 @@ async function sendToProduction(skipNickCheck = false) {
       }
     }
 
-    // Arkusz generujemy dla >1 szt. do produkcji (po powieleniu)
     if (PROD_QTY > 1) {
       const cols = 2;
       const rows = Math.ceil(PROD_QTY / 2);
@@ -2882,54 +2834,47 @@ async function applyProductConfig(cfg) {
 }
 /* ========END======== [SEKCJA 25] APPLY productConfig =========END======== */
 
-/* ========START======== [SEKCJA 25a] EXTERNAL offerId OVERRIDES (NIEZBĘDNIK) =========START======== */
-function applyExternalOfferOverrides(cfg) {
+/* ========START======== [SEKCJA 25a] SKU OVERRIDES (NIEZBĘDNIK) =========START======== */
+/**
+ * Produkty identyfikujemy po SKU (parametr sku w linku).
+ * Minimalnie: ustawiamy domyślny kształt:
+ * - jeśli SKU zawiera "Okrąg" / "Okrag" / kończy się "_Okrągła" -> circle
+ * - w pozostałych przypadkach -> square
+ */
+function applySkuOverrides(cfg) {
   try {
-    const ctx = (typeof getExternalContext === "function") ? getExternalContext() : null;
-    if (!ctx || !ctx.isExternalInit) return cfg;
+    const sku = String(getSkuFromUrl() || "").trim();
+    if (!sku) return cfg;
 
-    const offerId = String(ctx.offerId || "").trim();
-    if (!offerId) return cfg;
+    const skuLow = sku.toLowerCase();
 
-    const map = {
-      coaster_circle_100: {
-        ui: { subtitle: "Projekt 10 cm (okrąg, spad)." },
-        product: {
-          type: "coaster",
-          name: "Podkładka 10 cm",
-          size_mm: { w: 100, h: 100 },
-          corner_radius_mm: 0,
-          shape_default: "circle",
-          shape_options: ["circle", "square"],
-        },
-      },
-      coaster_square_100_r5: {
-        ui: { subtitle: "Projekt 10×10 cm (spad)." },
-        product: {
-          type: "coaster",
-          name: "Podkładka 10×10",
-          size_mm: { w: 100, h: 100 },
-          corner_radius_mm: 5,
-          shape_default: "square",
-          shape_options: ["square", "circle"],
-        },
-      },
-    };
-
-    const ovr = map[offerId];
-    if (!ovr) return cfg;
+    const isCircle =
+      skuLow.includes("okrąg") ||
+      skuLow.includes("okrag") ||
+      skuLow.includes("okrągła") ||
+      skuLow.includes("okragla") ||
+      skuLow.endsWith("_okrągła") ||
+      skuLow.endsWith("_okragla");
 
     const next = { ...cfg };
-    next.ui = { ...(cfg.ui || {}), ...(ovr.ui || {}) };
-    next.product = { ...(cfg.product || {}), ...(ovr.product || {}) };
-    if (ovr.product?.shape_options) next.product.shape_options = ovr.product.shape_options;
+    next.product = { ...(cfg.product || {}) };
+
+    next.product.shape_default = isCircle ? "circle" : "square";
+
+    // kosmetyka (róg tylko dla kwadratu)
+    if (isCircle) next.product.corner_radius_mm = 0;
+    else next.product.corner_radius_mm = (next.product.corner_radius_mm ?? 5);
+
+    // żeby UI pokazywało sensowny opis
+    next.ui = { ...(cfg.ui || {}) };
+    next.ui.subtitle = isCircle ? "Projekt 10 cm (okrąg, spad)." : "Projekt 10×10 cm (spad).";
 
     return next;
   } catch {
     return cfg;
   }
 }
-/* ========END======== [SEKCJA 25a] EXTERNAL offerId OVERRIDES (NIEZBĘDNIK) =========END======== */
+/* ========END======== [SEKCJA 25a] SKU OVERRIDES (NIEZBĘDNIK) =========END======== */
 
 
 /* ========START======== [SEKCJA 26] INIT =========START======== */
@@ -3067,21 +3012,14 @@ function applyExternalOfferOverrides(cfg) {
   const cfg = await loadConfigFromBackend(TOKEN);
 
   if (cfg) {
-    await applyProductConfig(applyExternalOfferOverrides(cfg));
+    await applyProductConfig(applySkuOverrides(cfg));
     toast("Konfiguracja załadowana ✅");
   } else {
     showProductManualChooser();
 
-    const extOfferId = getOfferIdFromUrl();
-
-    let preset = MANUAL_PRESETS[0];
-    if (extOfferId) {
-      if (extOfferId === "coaster_square_100_r5") preset = MANUAL_PRESETS.find(p => p.id === "coaster_square_100_r5") || preset;
-      if (extOfferId === "coaster_circle_100") preset = MANUAL_PRESETS.find(p => p.id === "coaster_circle_100") || preset;
-    }
-
-    const manualCfg = normalizeProductConfig(preset, { token: "", mode: "manual" });
-    await applyProductConfig(applyExternalOfferOverrides(manualCfg));
+    // manual fallback + sku override
+    const manualCfg = normalizeProductConfig(MANUAL_PRESETS[0], { token: "", mode: "manual" });
+    await applyProductConfig(applySkuOverrides(manualCfg));
 
     toast("Backend/token niedostępny — uruchomiono tryb ręczny.");
   }
@@ -3101,9 +3039,10 @@ function applyExternalOfferOverrides(cfg) {
     resetProjectNow();
   });
 
-  dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, SLOTS_COUNT, PROD_QTY });
+  dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, SLOTS_COUNT, PROD_QTY, sku: getSkuFromUrl() });
 })();
 /* ========END======== [SEKCJA 26] INIT =========END======== */
 
 
-/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-13-09 === */
+/* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-14-02 === */
+/* KONIEC PLIKU (v2026-02-14-02) */
