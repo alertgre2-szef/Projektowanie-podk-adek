@@ -14,7 +14,7 @@ const REPO_BASE = (() => {
 })();
 
 /** CACHE_VERSION: wersja runtime (cache-busting w assetach) */
-const CACHE_VERSION = "2026-02-14-02";
+const CACHE_VERSION = "2026-02-14-03";
 window.CACHE_VERSION = CACHE_VERSION;
 
 function withV(url) {
@@ -76,7 +76,6 @@ function getQueryParam(name) {
 }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 /* ========END======== [SEKCJA 01] UTIL + DEBUG =========END======== */
-
 
 
 
@@ -2899,16 +2898,26 @@ function applyExternalOfferOverrides(cfg) {
     btn.style.zIndex = "9999";
     btn.style.padding = "10px 12px";
     btn.style.borderRadius = "12px";
-    btn.style.border = "1px solid rgba(0,0,0,0.15)";
-    btn.style.background = "#ffffff";
-    btn.style.color = "#111827";
-    btn.style.font = "600 13px/1.1 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
-    btn.style.boxShadow = "0 8px 20px rgba(0,0,0,0.12)";
+    btn.style.border = "1px solid rgba(185,28,28,0.55)";
+    btn.style.background = "#dc2626";      // czerwony (ostrzeżenie)
+    btn.style.color = "#ffffff";           // biały tekst
+    btn.style.font = "700 13px/1.1 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
+    btn.style.boxShadow = "0 10px 22px rgba(220,38,38,0.30)";
     btn.style.cursor = "pointer";
-    btn.style.opacity = "0.92";
+    btn.style.opacity = "0.95";
 
-    btn.addEventListener("mouseenter", () => { btn.style.opacity = "1"; });
-    btn.addEventListener("mouseleave", () => { btn.style.opacity = "0.92"; });
+    btn.addEventListener("mouseenter", () => {
+      btn.style.opacity = "1";
+      btn.style.background = "#b91c1c";    // ciemniejszy hover
+      btn.style.borderColor = "rgba(127,29,29,0.70)";
+      btn.style.boxShadow = "0 12px 26px rgba(185,28,28,0.38)";
+    });
+    btn.addEventListener("mouseleave", () => {
+      btn.style.opacity = "0.95";
+      btn.style.background = "#dc2626";
+      btn.style.borderColor = "rgba(185,28,28,0.55)";
+      btn.style.boxShadow = "0 10px 22px rgba(220,38,38,0.30)";
+    });
 
     document.body.appendChild(btn);
     return btn;
@@ -3045,6 +3054,7 @@ function applyExternalOfferOverrides(cfg) {
   dlog("Loaded", { CACHE_VERSION, DEBUG, TOKEN, mode: productConfig?.mode, SLOTS_COUNT, PROD_QTY, sku: getSkuFromUrl() });
 })();
 /* ========END======== [SEKCJA 26] INIT =========END======== */
+
 
 
 /* === KONIEC PLIKU — editor/editor.js | FILE_VERSION: 2026-02-14-02 === */
